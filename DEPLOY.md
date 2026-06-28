@@ -1,7 +1,45 @@
 # Deploying JustMac to a single EC2 host (Docker)
 
 This runs everything — Next.js web, NestJS API, Postgres, Redis — on one box with
-Docker Compose. Good for a demo / small production. (~5 min once Docker is installed.)
+Docker Compose. Good for a demo / small production.
+
+There are two ways to get the app images onto the host:
+
+- **Path 1 — prebuilt images (recommended, esp. on a box with slow/flaky internet):**
+  GitHub Actions builds the images and the host just **pulls** them. No `pnpm install`
+  on the box. See **"Prebuilt images"** below.
+- **Path 2 — build on the host:** `docker compose ... up --build`. Simpler but needs a
+  fast, reliable connection to npm (it installs ~480 packages). See "Build on the host".
+
+---
+
+## Prebuilt images (recommended)
+
+**One-time, on GitHub:**
+1. Set the repo Variable `NEXT_PUBLIC_API_URL` to the public API URL the browser will use,
+   e.g. `http://<EC2_PUBLIC_IP>:4000` (Repo → Settings → Secrets and variables → Actions →
+   Variables → New variable). Or via CLI: `gh variable set NEXT_PUBLIC_API_URL -b "http://<IP>:4000"`.
+2. Run the **"Build & publish images"** workflow (Actions tab → Run workflow), or just push
+   to `main`. It publishes `ghcr.io/<you>/justmac-api` and `…/justmac-web`.
+3. Make both packages **public** once (GitHub → your profile → Packages → each package →
+   Package settings → Change visibility → Public). Then the host can pull without logging in.
+
+**On the EC2 host:**
+```bash
+cd ~/justmac && git pull
+cp deploy/.env.prod.example deploy/.env.prod && nano deploy/.env.prod   # set passwords, JWT_SECRET, URLs, GHCR_OWNER
+docker compose -f deploy/docker-compose.deploy.yml --env-file deploy/.env.prod pull
+docker compose -f deploy/docker-compose.deploy.yml --env-file deploy/.env.prod up -d
+# first-time DB init:
+docker compose -f deploy/docker-compose.deploy.yml --env-file deploy/.env.prod \
+  exec api sh -lc "pnpm exec prisma db push && pnpm run seed"
+```
+To update later: re-run the workflow (or push to main), then on the host
+`docker compose -f deploy/docker-compose.deploy.yml --env-file deploy/.env.prod pull && up -d`.
+
+---
+
+## Build on the host
 
 ## 0. Sizing & prerequisites
 

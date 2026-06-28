@@ -2,6 +2,10 @@ packages:
   - "apps/*"
   - "packages/*"
 
+# Disable pnpm's minimum-release-age verification: it makes extra registry calls to
+# check each package's publish date, which time out on slow/offline build hosts.
+minimumReleaseAge: 0
+
 # Allow native/codegen postinstall scripts these tools need.
 allowBuilds:
   '@nestjs/core': true
