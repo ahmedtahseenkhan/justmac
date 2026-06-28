@@ -1,0 +1,29 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sellme-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sellme
+      POSTGRES_PASSWORD: sellme
+      POSTGRES_DB: sellme
+    ports:
+      - "5435:5432"
+    volumes:
+      - sellme_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sellme"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: sellme-redis
+    restart: unless-stopped
+    ports:
+      - "6381:6379"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+
+volumes:
+  sellme_pgdata:

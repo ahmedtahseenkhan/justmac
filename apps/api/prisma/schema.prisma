@@ -1,0 +1,443 @@
+// Sellme — electronics trade-in MVP schema.
+// Scope kept to the "prove the loop" path: catalog -> quote -> order -> device -> payout.
+// Comments mark where the full spec (B2B, resale Listing, market feeds) plugs in later.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------- Catalog -----------------------------
+
+model Category {
+  id           String   @id @default(cuid())
+  slug         String   @unique
+  name         String
+  // Per-category target margin & guardrails used by the pricing engine.
+  targetMargin Float    @default(0.25)
+  brands       Brand[]
+  models       Model[]
+  createdAt    DateTime @default(now())
+}
+
+model Brand {
+  id         String   @id @default(cuid())
+  slug       String   @unique
+  name       String
+  category   Category @relation(fields: [categoryId], references: [id])
+  categoryId String
+  models     Model[]
+}
+
+model Model {
+  id                  String               @id @default(cuid())
+  slug                String               @unique
+  name                String
+  imageUrl            String?
+  category            Category             @relation(fields: [categoryId], references: [id])
+  categoryId          String
+  brand               Brand                @relation(fields: [brandId], references: [id])
+  brandId             String
+  variants            Variant[]
+  // Condition questions that apply to this model (phones get carrier-lock, laptops don't).
+  conditionAttributes ConditionAttribute[]
+  createdAt           DateTime             @default(now())
+
+  @@index([categoryId])
+}
+
+model Variant {
+  id         String      @id @default(cuid())
+  model      Model       @relation(fields: [modelId], references: [id])
+  modelId    String
+  label      String
+  // Flexible spec dimensions: { storage: "256GB", color: "Black", ram: "8GB", ... }
+  attributes Json
+  priceBases PriceBase[]
+  quotes     Quote[]
+
+  @@index([modelId])
+}
+
+// --------------------------- Condition model -----------------------
+
+// kind matches @sellme/shared ConditionKind: COSMETIC | FUNCTIONAL | BATTERY | ACCESSORIES | CARRIER_LOCK
+model ConditionAttribute {
+  id       String                     @id @default(cuid())
+  model    Model                      @relation(fields: [modelId], references: [id])
+  modelId  String
+  key      String // unique within a model, e.g. "cosmetic"
+  kind     String
+  label    String
+  helper   String?
+  sortOrder Int                       @default(0)
+  options  ConditionOption[]
+
+  @@unique([modelId, key])
+}
+
+model ConditionOption {
+  id          String             @id @default(cuid())
+  attribute   ConditionAttribute @relation(fields: [attributeId], references: [id])
+  attributeId String
+  key         String // e.g. "flawless", "good", "cracked"
+  label       String
+  helper      String?
+  // Multiplier applied to fair value when this option is selected (1.0 = no change).
+  multiplier  Float              @default(1.0)
+  sortOrder   Int                @default(0)
+
+  @@unique([attributeId, key])
+}
+
+// ----------------------------- Pricing -----------------------------
+
+// Versioned base value per variant (effective-dated). Engine reads the current row.
+model PriceBase {
+  id          String    @id @default(cuid())
+  variant     Variant   @relation(fields: [variantId], references: [id])
+  variantId   String
+  baseValue   Float
+  floor       Float // engine never quotes below this
+  ceiling     Float // engine never quotes above this
+  effectiveAt DateTime  @default(now())
+  expiresAt   DateTime?
+
+  @@index([variantId, effectiveAt])
+}
+
+// NOTE: MarketFeed / DepreciationModel are computed deterministically in the pricing
+// service for the MVP (see pricing.engine.ts). Promote to tables when wiring live feeds.
+
+// ------------------------------ Quote ------------------------------
+
+// Immutable snapshot of a configured offer. Referenced by OrderItem.
+model Quote {
+  id            String     @id @default(cuid())
+  variant       Variant    @relation(fields: [variantId], references: [id])
+  variantId     String
+  // Snapshot of inputs + computed breakdown so the offer is reproducible/auditable.
+  conditions    Json
+  breakdown     Json
+  offer         Float
+  currency      String     @default("USD")
+  confidenceLow Float
+  confidenceHigh Float
+  lockExpiresAt DateTime
+  createdAt     DateTime   @default(now())
+  orderItem     OrderItem?
+}
+
+// ------------------------------ Order ------------------------------
+
+model Order {
+  id             String      @id @default(cuid())
+  trackingId     String      @unique
+  email          String
+  fullName       String
+  payoutMethod   String
+  payoutDetail   String // masked at the edge in MVP
+  shippingOption String      @default("PREPAID_LABEL")
+  promoCode      String?
+  promoBonus     Float       @default(0) // buyback bonus added by a promo code
+  // Instant/same-day payout upsell: a fee is deducted from the payout.
+  instantPayout    Boolean   @default(false)
+  instantPayoutFee Float     @default(0)
+  // Affiliate attribution (tracked referral link).
+  affiliateCode  String?
+  labelUrl       String?
+  totalOffer     Float
+  currency       String      @default("USD")
+  // Order-level rollup state mirrors the device state for single-device MVP boxes.
+  state          String      @default("QUOTE_LOCKED")
+  createdAt      DateTime    @default(now())
+  items          OrderItem[]
+  events         OrderEvent[]
+  notifications  Notification[]
+}
+
+model OrderItem {
+  id        String   @id @default(cuid())
+  order     Order    @relation(fields: [orderId], references: [id])
+  orderId   String
+  quote     Quote    @relation(fields: [quoteId], references: [id])
+  quoteId   String   @unique
+  modelName String
+  modelSlug String   @default("") // lets the back-office load the right grading form
+  variantLabel String
+  offer     Float
+  state     String   @default("QUOTE_LOCKED")
+  device    Device?
+
+  @@index([orderId])
+}
+
+// Physical unit — created at intake. Holds serial/IMEI, inspection, wipe cert, resale link.
+model Device {
+  id           String      @id @default(cuid())
+  orderItem    OrderItem   @relation(fields: [orderItemId], references: [id])
+  orderItemId  String      @unique
+  serial       String?
+  imei         String?
+  wipeCertUrl  String?
+  // Eligibility / fraud screening run at intake.
+  eligible     Boolean     @default(true)
+  screening    Json? // { lockStatus, blacklistStatus, mismatch, velocity, flags[] }
+  inspection   Inspection?
+  // Closing the loop: the resale listing this acquired unit becomes.
+  listing      Listing?
+  createdAt    DateTime    @default(now())
+
+  @@index([serial])
+}
+
+model Inspection {
+  id               String   @id @default(cuid())
+  device           Device   @relation(fields: [deviceId], references: [id])
+  deviceId         String   @unique
+  inspector        String?
+  findings         String?
+  // Inspector's actual condition grades (same shape as the quote's conditions).
+  gradedConditions Json?
+  // Offer the inspection lands on (original if confirmed, re-priced if adjusted).
+  adjustedOffer    Float?
+  outcome          String? // CONFIRMED | ADJUSTED
+  createdAt        DateTime @default(now())
+}
+
+model Payout {
+  id        String   @id @default(cuid())
+  orderId   String
+  rail      String
+  amount    Float
+  status    String   @default("PENDING") // PENDING | SENT | FAILED
+  reference String? // idempotency key
+  createdAt DateTime @default(now())
+
+  @@unique([reference])
+}
+
+// Append-only audit trail of lifecycle transitions for the Track view + back-office.
+model OrderEvent {
+  id        String   @id @default(cuid())
+  order     Order    @relation(fields: [orderId], references: [id])
+  orderId   String
+  state     String
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([orderId, createdAt])
+}
+
+// Transactional message log. Providers are stubbed in MVP (console); rows here power
+// the user-facing activity feed and prove a message fired at each state change.
+model Notification {
+  id        String   @id @default(cuid())
+  order     Order    @relation(fields: [orderId], references: [id])
+  orderId   String
+  channel   String // EMAIL | SMS
+  to        String
+  subject   String
+  body      String
+  state     String
+  status    String   @default("SENT") // SENT | FAILED
+  createdAt DateTime @default(now())
+
+  @@index([orderId, createdAt])
+}
+
+// ----------------------------- Phase 3: resale + pricing + promos -----------------------------
+
+// A refurbished unit for sale. Linked 1:1 to the acquisition Device so every listing is
+// traceable bought -> graded -> wiped -> refurbished -> listed -> sold.
+model Listing {
+  id              String    @id @default(cuid())
+  sku             String    @unique
+  device          Device    @relation(fields: [deviceId], references: [id])
+  deviceId        String    @unique
+  title           String
+  modelSlug       String
+  grade           String // A | B | C
+  gradeLabel      String
+  warrantyMonths  Int       @default(12)
+  price           Float
+  // What we paid to acquire it (the buyback offer) — drives margin reporting.
+  acquisitionCost Float
+  channel         String    @default("STOREFRONT") // STOREFRONT | WHOLESALE
+  status          String    @default("LISTED") // REFURBISHED | LISTED | SOLD
+  soldAt          DateTime?
+  saleItem        SaleItem?
+  createdAt       DateTime  @default(now())
+
+  @@index([status])
+}
+
+// A resale purchase from the storefront (card/PayPal are stubbed).
+model Sale {
+  id         String     @id @default(cuid())
+  reference  String     @unique // idempotency key
+  buyerEmail String
+  buyerName  String
+  payMethod  String // CARD | PAYPAL
+  promoCode  String?
+  discount   Float      @default(0)
+  total      Float
+  currency   String     @default("USD")
+  createdAt  DateTime   @default(now())
+  items      SaleItem[]
+}
+
+model SaleItem {
+  id        String  @id @default(cuid())
+  sale      Sale    @relation(fields: [saleId], references: [id])
+  saleId    String
+  listing   Listing @relation(fields: [listingId], references: [id])
+  listingId String  @unique
+  price     Float
+
+  @@index([saleId])
+}
+
+// Live demand signal per model. Editable (admin) and read by the pricing engine; replaces
+// the deterministic stand-in. factor 1.0 = neutral, >1 hotter, <1 softer.
+model MarketFeed {
+  id        String   @id @default(cuid())
+  modelId   String   @unique
+  factor    Float    @default(1.0)
+  updatedAt DateTime @updatedAt
+}
+
+// Promo codes: buyback payout bonuses or resale discounts.
+model PromoCode {
+  id        String  @id @default(cuid())
+  code      String  @unique
+  kind      String // BUYBACK_BONUS | RESALE_DISCOUNT
+  valueType String // PERCENT | FIXED
+  value     Float
+  scope     String  @default("ALL") // ALL | category:<slug> | model:<slug>
+  active    Boolean @default(true)
+}
+
+// ----------------------------- Back office: users & roles -----------------------------
+
+// Staff/owner accounts for the authenticated back office. role: ADMIN | OPS_STAFF
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         String   @default("OPS_STAFF")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+}
+
+// ----------------------------- Phase 4: B2B / Bulk / ITAD -----------------------------
+
+model B2BAccount {
+  id           String      @id @default(cuid())
+  company      String      @unique
+  contactName  String
+  contactEmail String
+  netTermsDays Int         @default(30)
+  createdAt    DateTime    @default(now())
+  batches      BulkBatch[]
+  invoices     Invoice[]
+}
+
+// A bulk submission: BUYBACK (we pay) or ITAD (asset disposition / data destruction).
+model BulkBatch {
+  id           String       @id @default(cuid())
+  reference    String       @unique
+  account      B2BAccount   @relation(fields: [accountId], references: [id])
+  accountId    String
+  type         String // BUYBACK | ITAD
+  status       String       @default("SUBMITTED") // SUBMITTED | PROCESSING | COMPLETED
+  // Relationship-manager routing (assigned by volume).
+  manager      String
+  deviceCount  Int          @default(0)
+  totalValue   Float        @default(0)
+  createdAt    DateTime     @default(now())
+  devices      BulkDevice[]
+  invoice      Invoice?
+
+  @@index([accountId])
+}
+
+model BulkDevice {
+  id                 String    @id @default(cuid())
+  batch              BulkBatch @relation(fields: [batchId], references: [id])
+  batchId            String
+  modelName          String
+  variantLabel       String
+  serial             String?
+  quotedValue        Float     @default(0) // 0 for ITAD
+  matched            Boolean   @default(true) // false if model/variant not found in catalog
+  wipeCertUrl        String?
+  destructionCertUrl String? // ITAD only
+  // Chain-of-custody trail: [{ event, at }]
+  custody            Json
+
+  @@index([batchId])
+}
+
+// Net-terms invoice for a BUYBACK batch (what we owe the business).
+model Invoice {
+  id           String     @id @default(cuid())
+  number       String     @unique
+  account      B2BAccount @relation(fields: [accountId], references: [id])
+  accountId    String
+  batch        BulkBatch  @relation(fields: [batchId], references: [id])
+  batchId      String     @unique
+  amount       Float
+  netTermsDays Int
+  dueDate      DateTime
+  status       String     @default("ISSUED") // ISSUED | PAID
+  createdAt    DateTime   @default(now())
+}
+
+// ----------------------------- Phase 4: growth levers -----------------------------
+
+// Affiliate / referral partner. Earns commission on referred trade-ins that get paid.
+model Affiliate {
+  id          String                @id @default(cuid())
+  code        String                @unique
+  name        String
+  email       String
+  ratePct     Float                 @default(5) // % of payout earned as commission
+  clicks      Int                   @default(0)
+  earnings    Float                 @default(0)
+  createdAt   DateTime              @default(now())
+  conversions AffiliateConversion[]
+}
+
+model AffiliateConversion {
+  id              String    @id @default(cuid())
+  affiliate       Affiliate @relation(fields: [affiliateId], references: [id])
+  affiliateId     String
+  orderTrackingId String    @unique // idempotent: one conversion per order
+  payoutBase      Float
+  commission      Float
+  createdAt       DateTime  @default(now())
+
+  @@index([affiliateId])
+}
+
+// "Notify me if my device's quote rises above $X." Re-evaluated by a checker job.
+model PriceWatch {
+  id           String    @id @default(cuid())
+  email        String
+  variantId    String
+  modelName    String
+  variantLabel String
+  threshold    Float
+  lastOffer    Float
+  active       Boolean   @default(true)
+  triggeredAt  DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([active])
+}

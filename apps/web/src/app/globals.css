@@ -1,0 +1,118 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-canvas text-ink-900 antialiased;
+  text-rendering: optimizeLegibility;
+}
+::selection {
+  background: #1c5fb6;
+  color: #fff;
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-brand-600 text-white hover:bg-brand-700;
+  }
+  .btn-ghost {
+    @apply btn border border-line bg-white text-ink-900 hover:border-brand-600;
+  }
+  .btn-dark {
+    @apply btn bg-ink-900 text-white hover:bg-black;
+  }
+  .card {
+    @apply rounded-2xl border border-line bg-white shadow-sm;
+  }
+  .input {
+    @apply w-full rounded-xl border border-line px-3.5 py-2.5 text-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600;
+  }
+  .eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.16em] text-brand-600;
+  }
+}
+
+/* Animated gradient "cash." word */
+.cashword {
+  background: linear-gradient(90deg, #1c5fb6, #5bc2ef, #15498f, #1c5fb6);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  display: inline-block;
+  padding-right: 0.08em;
+  animation: gradslide 4.5s linear infinite;
+}
+
+/* Nav underline on hover */
+.navlink {
+  position: relative;
+}
+.navlink::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -6px;
+  height: 2px;
+  background: #1c5fb6;
+  border-radius: 2px;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.navlink:hover::after {
+  transform: scaleX(1);
+}
+
+/* Scroll-reveal engine — elements start hidden, .in animates them in */
+.reveal {
+  opacity: 0;
+}
+.reveal.in {
+  animation: kUp 0.82s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.reveal.from-left.in {
+  animation-name: kLeft;
+}
+.reveal.from-right.in {
+  animation-name: kRight;
+}
+.reveal.blur.in {
+  animation-name: kBlur;
+}
+.reveal.zoom.in {
+  animation-name: kZoom;
+}
+@keyframes kUp {
+  from { opacity: 0; transform: translateY(38px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes kLeft {
+  from { opacity: 0; transform: translateX(-54px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes kRight {
+  from { opacity: 0; transform: translateX(54px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes kBlur {
+  from { opacity: 0; filter: blur(16px); transform: scale(1.04); }
+  to { opacity: 1; filter: blur(0); transform: none; }
+}
+@keyframes kZoom {
+  from { opacity: 0; transform: scale(0.82); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1 !important; animation: none !important; }
+  .cashword { animation: none; }
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

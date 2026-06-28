@@ -1,0 +1,23 @@
+{
+  "name": "sellme",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electronics trade-in (buyback) platform — MVP loop",
+  "scripts": {
+    "dev": "pnpm -r --parallel run dev",
+    "build": "pnpm -r run build",
+    "db:up": "docker compose up -d postgres redis",
+    "db:down": "docker compose down",
+    "db:migrate": "pnpm --filter @sellme/api exec prisma migrate dev",
+    "db:push": "pnpm --filter @sellme/api exec prisma db push",
+    "db:seed": "pnpm --filter @sellme/api run seed",
+    "db:reset": "pnpm --filter @sellme/api exec prisma migrate reset --force",
+    "build:shared": "pnpm --filter @sellme/shared build",
+    "prisma:generate": "pnpm --filter @sellme/api run prisma:generate",
+    "setup": "pnpm install && pnpm build:shared && pnpm prisma:generate && pnpm db:up && sleep 4 && pnpm db:push && pnpm db:seed"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@11.8.0"
+}
