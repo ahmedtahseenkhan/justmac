@@ -13,7 +13,7 @@ export default async function AdminOrderDetail({ params }: { params: { trackingI
       <Link href="/admin/orders" className="text-sm font-semibold text-brand-700 hover:underline">
         ← All orders
       </Link>
-      <OrderTrack order={order} justPlaced={false} />
+      <OrderTrack order={order} justPlaced={false} admin />
     </div>
   );
 }

@@ -11,6 +11,7 @@ import { PriceBreakdown } from "@/components/PriceBreakdown";
 import { PhotoCapture } from "@/components/PhotoCapture";
 import { PriceWatchForm } from "@/components/PriceWatchForm";
 import { DeviceVisual, deviceKind } from "@/components/DeviceArt";
+import { FEATURES } from "@/lib/features";
 
 type Selections = Record<string, string>; // attributeKey -> optionKey
 
@@ -18,10 +19,11 @@ export function QuoteWizard({ model }: { model: ModelDetailDto }) {
   const router = useRouter();
   const add = useCart((s) => s.add);
 
-  // Steps: 0 = variant, 1..N = condition attributes, N+1 = photos, N+2 = offer
+  // Steps: 0 = variant, 1..N = condition attributes, [N+1 = photos], then offer.
+  // The photo step is optional (FEATURES.photos).
   const condCount = model.conditionAttributes.length;
-  const photoStep = condCount + 1;
-  const offerStep = condCount + 2;
+  const photoStep = FEATURES.photos ? condCount + 1 : -1;
+  const offerStep = FEATURES.photos ? condCount + 2 : condCount + 1;
   const totalSteps = offerStep + 1;
 
   const [step, setStep] = useState(0);
@@ -79,7 +81,7 @@ export function QuoteWizard({ model }: { model: ModelDetailDto }) {
   const stepLabels = [
     "Configuration",
     ...model.conditionAttributes.map((a) => a.label),
-    "Photos",
+    ...(FEATURES.photos ? ["Photos"] : []),
     "Your offer",
   ];
   const kind = deviceKind(model.category);
@@ -198,8 +200,8 @@ export function QuoteWizard({ model }: { model: ModelDetailDto }) {
           );
         })()}
 
-        {/* Photo step */}
-        {step === photoStep && (
+        {/* Photo step (optional — FEATURES.photos) */}
+        {FEATURES.photos && step === photoStep && (
           <Step
             title="Add photos of your device"
             helper="Optional, but photos tighten your quote and speed up inspection."
@@ -290,13 +292,13 @@ export function QuoteWizard({ model }: { model: ModelDetailDto }) {
               Back
             </button>
             <button className="btn-primary" onClick={() => goTo(step + 1)} disabled={!canAdvance}>
-              {step === photoStep ? "See my offer" : "Continue"}
+              {step === offerStep - 1 ? "See my offer" : "Continue"}
             </button>
           </div>
         )}
         {step === offerStep && (
           <div className="mt-4">
-            <button className="btn-ghost" onClick={() => goTo(photoStep)}>
+            <button className="btn-ghost" onClick={() => goTo(offerStep - 1)}>
               Back
             </button>
           </div>

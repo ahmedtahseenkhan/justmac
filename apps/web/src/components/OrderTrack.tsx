@@ -21,7 +21,21 @@ const TIMELINE: LifecycleState[] = [
   "PAID",
 ];
 
-export function OrderTrack({ order: initial, justPlaced }: { order: OrderDto; justPlaced: boolean }) {
+/**
+ * Order tracking view, shared by the customer (/track/:id) and the back office
+ * (/admin/orders/:id). Advancing the lifecycle is an OPS action, so those controls
+ * only render when `admin` is true. Accept/reject (Fair-Evaluation) stays with the
+ * customer. The API enforces this too (advance requires ADMIN/OPS_STAFF).
+ */
+export function OrderTrack({
+  order: initial,
+  justPlaced,
+  admin = false,
+}: {
+  order: OrderDto;
+  justPlaced: boolean;
+  admin?: boolean;
+}) {
   const [order, setOrder] = useState(initial);
   const [busy, setBusy] = useState(false);
 
@@ -211,11 +225,12 @@ export function OrderTrack({ order: initial, justPlaced }: { order: OrderDto; ju
         </div>
       )}
 
-      {/* Demo control — stands in for back-office / carrier webhooks */}
-      {demoStates.length > 0 && (
+      {/* Staff-only: advance the lifecycle (stands in for carrier webhooks / back-office).
+          Never rendered for customers — the API also rejects it without an ops session. */}
+      {admin && demoStates.length > 0 && (
         <div className="mt-6 rounded-xl border border-dashed border-gray-300 p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-ink-300">
-            Demo: simulate next step
+            Staff: advance status
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             {demoStates.map((s) => (
@@ -225,7 +240,7 @@ export function OrderTrack({ order: initial, justPlaced }: { order: OrderDto; ju
             ))}
           </div>
           <p className="mt-2 text-xs text-ink-300">
-            Or use the <a href="/ops" className="underline">ops back-office</a> to intake &amp; grade.
+            Or use the <a href="/admin/operations" className="underline">grading queue</a> to intake &amp; grade.
           </p>
         </div>
       )}

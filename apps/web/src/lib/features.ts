@@ -6,4 +6,5 @@
 export const FEATURES = {
   shop: false, // Certified Pre-Owned storefront + resale ops
   business: false, // B2B / Bulk / ITAD
+  photos: false, // "Add photos of your device" step in the quote wizard
 } as const;
