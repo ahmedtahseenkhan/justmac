@@ -21,6 +21,20 @@ const TIMELINE: LifecycleState[] = [
   "PAID",
 ];
 
+// Seller-facing "what happens next" guidance per state.
+const CUSTOMER_HINTS: Partial<Record<LifecycleState, string>> = {
+  LABEL_ISSUED: "Pack your device, drop it off with the prepaid label, then tap the button above so we know it's coming.",
+  IN_TRANSIT: "Your package is on its way. We'll email you the moment it arrives at our facility.",
+  RECEIVED: "Your device has arrived. Our team will inspect it — this usually takes 1 business day.",
+  INSPECTING: "Our technicians are verifying your device's condition against your quote.",
+  OFFER_CONFIRMED: "Inspection matched your quote — accept below and we'll send your payout.",
+  OFFER_ADJUSTED: "Inspection found a difference. Review the adjusted offer below — accept it, or reject for a free return.",
+  ACCEPTED: "Your payout is being processed via your chosen method.",
+  PAID: "All done — your payout has been sent. Thanks for trading with JustMac!",
+  REJECTED: "We're preparing your device for free return shipping.",
+  RETURNED: "Your device has been shipped back to you at no cost.",
+};
+
 /**
  * Order tracking view, shared by the customer (/track/:id) and the back office
  * (/admin/orders/:id). Advancing the lifecycle is an OPS action, so those controls
@@ -55,6 +69,14 @@ export function OrderTrack({
     setBusy(true);
     try {
       setOrder(await api.respondOrder(order.trackingId, { decision }));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function shipped() {
+    setBusy(true);
+    try {
+      setOrder(await api.markShipped(order.trackingId));
     } finally {
       setBusy(false);
     }
@@ -107,6 +129,29 @@ export function OrderTrack({
           </li>
         )}
       </ol>
+
+      {/* Customer action: confirm the package was handed to the carrier. In production
+          this transition comes from the carrier's tracking webhook automatically. */}
+      {!admin && order.state === "LABEL_ISSUED" && (
+        <div className="card mt-6 border-brand-300 p-6">
+          <h2 className="text-lg font-bold">Shipped your device?</h2>
+          <p className="mt-1 text-sm text-ink-500">
+            Print your prepaid label, pack the device, and drop it off at any carrier location.
+            Then let us know it's on the way.
+          </p>
+          <button className="btn-primary mt-4 w-full" disabled={busy} onClick={shipped}>
+            📦 I've shipped my device
+          </button>
+        </div>
+      )}
+
+      {/* What happens next (customer guidance) */}
+      {!admin && CUSTOMER_HINTS[order.state] && (
+        <p className="mt-4 rounded-xl bg-white px-4 py-3 text-sm text-ink-500 shadow-sm">
+          <span className="font-semibold text-ink-700">What happens next: </span>
+          {CUSTOMER_HINTS[order.state]}
+        </p>
+      )}
 
       {/* Fair-Evaluation: respond to the post-inspection offer */}
       {awaitingResponse && (

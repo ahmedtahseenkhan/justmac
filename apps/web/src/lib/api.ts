@@ -109,6 +109,8 @@ export const api = {
     }),
   respondOrder: (trackingId: string, body: RespondRequest) =>
     http<OrderDto>(`/orders/${trackingId}/respond`, { method: "POST", body: JSON.stringify(body) }),
+  markShipped: (trackingId: string) =>
+    http<OrderDto>(`/orders/${trackingId}/shipped`, { method: "POST" }),
 
   // Ops back-office
   opsQueue: () => http<OrderDto[]>(`/ops/queue`),

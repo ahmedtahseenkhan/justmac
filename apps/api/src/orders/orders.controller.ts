@@ -58,6 +58,13 @@ export class OrdersController {
     return this.orders.advance(trackingId, body.to, body.note);
   }
 
+  // Public: seller confirms they've dropped the package off (LABEL_ISSUED → IN_TRANSIT
+  // only — stands in for a carrier tracking webhook).
+  @Post(":trackingId/shipped")
+  shipped(@Param("trackingId") trackingId: string) {
+    return this.orders.markShipped(trackingId);
+  }
+
   // Public: seller's Fair-Evaluation response to a confirmed/adjusted offer.
   @Post(":trackingId/respond")
   respond(

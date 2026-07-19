@@ -207,6 +207,20 @@ export class OrdersService {
   }
 
   /**
+   * Seller confirms they've handed the package to the carrier. This is the only
+   * lifecycle transition a customer may trigger directly (LABEL_ISSUED → IN_TRANSIT);
+   * in production a FedEx/UPS tracking webhook would do this automatically.
+   */
+  async markShipped(trackingIdParam: string): Promise<OrderDto> {
+    const order = await this.prisma.order.findUnique({ where: { trackingId: trackingIdParam } });
+    if (!order) throw new NotFoundException("Order not found");
+    if (order.state !== "LABEL_ISSUED") {
+      throw new BadRequestException("This order isn't waiting to be shipped.");
+    }
+    return this.advance(trackingIdParam, "IN_TRANSIT", "Seller marked the package as shipped");
+  }
+
+  /**
    * Seller's Fair-Evaluation response after inspection.
    *  - ACCEPT from OFFER_CONFIRMED/OFFER_ADJUSTED → lock in the (adjusted) offer, pay out.
    *  - REJECT from OFFER_ADJUSTED → free return (REJECTED → RETURNED).
