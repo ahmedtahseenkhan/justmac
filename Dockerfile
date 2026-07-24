@@ -23,8 +23,11 @@ RUN pnpm --filter @sellme/shared build
 
 # ---- API runtime ----
 FROM base AS api
+# Raise the V8 heap for the build: on small hosts (≤1GB RAM) Node auto-sets a
+# ~256MB old-space limit and the nest/tsc compile OOMs. Needs swap on the host
+# to back it. Scoped to the build RUN so it doesn't affect the runtime process.
 RUN pnpm --filter @sellme/api exec prisma generate \
- && pnpm --filter @sellme/api build
+ && NODE_OPTIONS=--max-old-space-size=2048 pnpm --filter @sellme/api build
 ENV NODE_ENV=production
 WORKDIR /app/apps/api
 EXPOSE 4000
@@ -34,7 +37,8 @@ CMD ["node", "dist/main.js"]
 FROM base AS web
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-RUN pnpm --filter @sellme/web build
+# Same heap headroom for the Next.js production build (see API note above).
+RUN NODE_OPTIONS=--max-old-space-size=2048 pnpm --filter @sellme/web build
 ENV NODE_ENV=production
 WORKDIR /app/apps/web
 EXPOSE 3100
