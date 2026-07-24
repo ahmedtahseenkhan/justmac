@@ -322,6 +322,71 @@ model PromoCode {
   active    Boolean @default(true)
 }
 
+// ----------------------------- Market prices (external feeds) -----------------------------
+
+// Maps a catalog variant to its listing on an external marketplace (Back Market).
+// Mapping is manual (admin pastes the product URL) — fuzzy matching is where price
+// feeds silently go wrong, so we only ever re-fetch URLs a human confirmed.
+model ExternalProductLink {
+  id        String                @id @default(cuid())
+  variantId String                @unique
+  source    String                @default("BACKMARKET")
+  url       String
+  active    Boolean               @default(true)
+  snapshots MarketPriceSnapshot[]
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+}
+
+// One fetch attempt against a linked listing. Kept append-only for price history/audit.
+model MarketPriceSnapshot {
+  id        String              @id @default(cuid())
+  link      ExternalProductLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  linkId    String
+  price     Float? // null when the fetch/parse failed
+  currency  String              @default("USD")
+  status    String // OK | FETCH_ERROR | PARSE_ERROR
+  error     String?
+  proposal  PriceProposal?
+  fetchedAt DateTime            @default(now())
+
+  @@index([linkId, fetchedAt])
+}
+
+// Review gate: a PriceBase change computed from a snapshot. Small moves auto-apply;
+// large moves (or first-ever prices) wait for admin approval so one broken scrape
+// can't re-price the catalog.
+model PriceProposal {
+  id         String              @id @default(cuid())
+  snapshot   MarketPriceSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  snapshotId String              @unique
+  variantId  String
+  oldBase    Float? // null when the variant had no active base price
+  newBase    Float
+  newFloor   Float
+  newCeiling Float
+  changePct  Float? // signed fraction vs oldBase, null on first price
+  status     String              @default("PENDING") // PENDING | AUTO_APPLIED | APPROVED | REJECTED
+  decidedBy  String?
+  decidedAt  DateTime?
+  createdAt  DateTime            @default(now())
+
+  @@index([status, createdAt])
+}
+
+// Singleton (id = "default"): cadence + guardrails for the market-price sync job.
+model MarketSyncConfig {
+  id           String    @id @default("default")
+  enabled      Boolean   @default(true)
+  cadenceDays  Int       @default(7) // 7 = weekly, 14 = bi-weekly
+  autoApplyPct Float     @default(0.25) // |change| above this fraction needs approval
+  floorPct     Float     @default(0.35) // new floor = base * floorPct
+  ceilingPct   Float     @default(1.15) // new ceiling = base * ceilingPct
+  lastRunAt    DateTime?
+  nextRunAt    DateTime?
+  updatedAt    DateTime  @updatedAt
+}
+
 // ----------------------------- Back office: users & roles -----------------------------
 
 // Staff/owner accounts for the authenticated back office. role: ADMIN | OPS_STAFF

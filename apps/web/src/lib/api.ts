@@ -50,6 +50,12 @@ import type {
   DashboardDto,
   CreateUserRequest,
   UpdateUserRequest,
+  MarketOverviewDto,
+  MarketLinkSuggestionsDto,
+  MarketSyncConfigDto,
+  MarketSyncRunResult,
+  UpdateMarketSyncConfigRequest,
+  UpsertMarketLinkRequest,
 } from "@sellme/shared";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
@@ -235,6 +241,25 @@ export const api = {
   upsertPromo: (body: UpsertPromoRequest) =>
     http<PromoDto>(`/admin/promos`, { method: "POST", body: JSON.stringify(body) }),
   deletePromo: (id: string) => http<{ ok: true }>(`/admin/promos/${id}`, { method: "DELETE" }),
+
+  // ---- Back office: market prices (Back Market feed) ----
+  marketOverview: () => http<MarketOverviewDto>(`/admin/market-prices/overview`),
+  marketUpdateConfig: (body: UpdateMarketSyncConfigRequest) =>
+    http<MarketSyncConfigDto>(`/admin/market-prices/config`, { method: "PUT", body: JSON.stringify(body) }),
+  marketSuggestLinks: (variantId: string) =>
+    http<MarketLinkSuggestionsDto>(`/admin/market-prices/links/${variantId}/suggest`),
+  marketUpsertLink: (variantId: string, body: UpsertMarketLinkRequest) =>
+    http<{ ok: boolean }>(`/admin/market-prices/links/${variantId}`, { method: "PUT", body: JSON.stringify(body) }),
+  marketDeleteLink: (variantId: string) =>
+    http<{ ok: boolean }>(`/admin/market-prices/links/${variantId}`, { method: "DELETE" }),
+  marketRunSync: () => http<MarketSyncRunResult>(`/admin/market-prices/run`, { method: "POST" }),
+  marketRefreshOne: (variantId: string) =>
+    http<MarketSyncRunResult>(`/admin/market-prices/links/${variantId}/refresh`, { method: "POST" }),
+  marketDecideProposal: (id: string, decision: "APPROVE" | "REJECT") =>
+    http<{ ok: boolean }>(`/admin/market-prices/proposals/${id}/decide`, {
+      method: "POST",
+      body: JSON.stringify({ decision }),
+    }),
 
   // ---- Back office: users ----
   listUsers: () => http<AuthUser[]>(`/auth/users`),

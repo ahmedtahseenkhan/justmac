@@ -27,6 +27,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
     items: [
       { href: "/admin/catalog", label: "Catalog", icon: "📱", roles: ["ADMIN"] },
       { href: "/admin/pricing", label: "Pricing", icon: "＄", roles: ["ADMIN"] },
+      { href: "/admin/market-prices", label: "Market prices", icon: "🌐", roles: ["ADMIN"] },
       { href: "/admin/promos", label: "Promo codes", icon: "🏷️", roles: ["ADMIN"] },
       { href: "/admin/affiliates", label: "Affiliates", icon: "🔗", roles: ["ADMIN"] },
       { href: "/admin/price-watch", label: "Price watch", icon: "🔔", roles: ["ADMIN"] },

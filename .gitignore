@@ -11,3 +11,6 @@ deploy/.env.prod
 apps/api/prisma/migrations/.tmp/
 coverage/
 .turbo/
+
+# TypeScript incremental build info
+*.tsbuildinfo

@@ -643,6 +643,155 @@ export const priceWatchRunResultSchema = z.object({
 export type PriceWatchRunResult = z.infer<typeof priceWatchRunResultSchema>;
 
 /* ------------------------------------------------------------------ *
+ * Market prices — external feed (Back Market) sync + review gate
+ * ------------------------------------------------------------------ */
+
+export const MARKET_SOURCES = ["BACKMARKET", "GAZELLE", "PLUG"] as const;
+export type MarketSource = (typeof MARKET_SOURCES)[number];
+
+/** Human labels for marketplace sources shown in the admin UI. */
+export const MARKET_SOURCE_LABELS: Record<MarketSource, string> = {
+  BACKMARKET: "Back Market",
+  GAZELLE: "Gazelle",
+  PLUG: "plug.tech",
+};
+
+/** Hosts a market link may point at (matched as host or subdomain). */
+export const MARKET_LINK_HOSTS = ["backmarket.com", "gazelle.com", "plug.tech"] as const;
+
+function isSupportedMarketUrl(u: string): boolean {
+  try {
+    const host = new URL(u).hostname.toLowerCase();
+    return MARKET_LINK_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
+  } catch {
+    return false;
+  }
+}
+
+export const SNAPSHOT_STATUSES = ["OK", "FETCH_ERROR", "PARSE_ERROR"] as const;
+export const PROPOSAL_STATUSES = ["PENDING", "AUTO_APPLIED", "APPROVED", "REJECTED"] as const;
+export type ProposalStatus = (typeof PROPOSAL_STATUSES)[number];
+
+export const upsertMarketLinkSchema = z.object({
+  url: z
+    .string()
+    .url()
+    .refine(isSupportedMarketUrl, {
+      message: "Must be a product URL on backmarket.com, gazelle.com, or plug.tech",
+    }),
+  active: z.boolean().default(true),
+});
+export type UpsertMarketLinkRequest = z.infer<typeof upsertMarketLinkSchema>;
+
+export const updateMarketSyncConfigSchema = z
+  .object({
+    enabled: z.boolean(),
+    cadenceDays: z.number().int().min(1).max(60),
+    autoApplyPct: z.number().min(0).max(1),
+    floorPct: z.number().min(0.05).max(1),
+    ceilingPct: z.number().min(1).max(3),
+  })
+  .partial();
+export type UpdateMarketSyncConfigRequest = z.infer<typeof updateMarketSyncConfigSchema>;
+
+export const marketSyncConfigDtoSchema = z.object({
+  enabled: z.boolean(),
+  cadenceDays: z.number(),
+  autoApplyPct: z.number(),
+  floorPct: z.number(),
+  ceilingPct: z.number(),
+  lastRunAt: z.string().nullable(),
+  nextRunAt: z.string().nullable(),
+});
+export type MarketSyncConfigDto = z.infer<typeof marketSyncConfigDtoSchema>;
+
+export const marketSnapshotDtoSchema = z.object({
+  id: z.string(),
+  price: z.number().nullable(),
+  currency: z.string(),
+  status: z.enum(SNAPSHOT_STATUSES),
+  error: z.string().nullable(),
+  fetchedAt: z.string(),
+});
+export type MarketSnapshotDto = z.infer<typeof marketSnapshotDtoSchema>;
+
+export const priceProposalDtoSchema = z.object({
+  id: z.string(),
+  variantId: z.string(),
+  modelName: z.string(),
+  variantLabel: z.string(),
+  sourcePrice: z.number().nullable(),
+  oldBase: z.number().nullable(),
+  newBase: z.number(),
+  newFloor: z.number(),
+  newCeiling: z.number(),
+  /** Signed fraction vs oldBase (0.12 = +12%), null on a first-ever price. */
+  changePct: z.number().nullable(),
+  status: z.enum(PROPOSAL_STATUSES),
+  decidedBy: z.string().nullable(),
+  decidedAt: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type PriceProposalDto = z.infer<typeof priceProposalDtoSchema>;
+
+// One row of the mapping table: a variant + its link + the latest fetch result.
+export const marketVariantRowSchema = z.object({
+  variantId: z.string(),
+  variantLabel: z.string(),
+  modelId: z.string(),
+  modelName: z.string(),
+  modelSlug: z.string(),
+  brand: z.string(),
+  categoryName: z.string(),
+  baseValue: z.number().nullable(),
+  link: z
+    .object({ url: z.string(), active: z.boolean(), source: z.enum(MARKET_SOURCES) })
+    .nullable(),
+  lastSnapshot: marketSnapshotDtoSchema.nullable(),
+  hasPendingProposal: z.boolean(),
+});
+export type MarketVariantRow = z.infer<typeof marketVariantRowSchema>;
+
+export const marketOverviewDtoSchema = z.object({
+  config: marketSyncConfigDtoSchema,
+  rows: z.array(marketVariantRowSchema),
+  pending: z.array(priceProposalDtoSchema),
+});
+export type MarketOverviewDto = z.infer<typeof marketOverviewDtoSchema>;
+
+// A suggested Back Market page for a variant ("is this the right listing?").
+export const marketLinkCandidateSchema = z.object({
+  url: z.string(),
+  title: z.string(),
+  /** 0..1 — fraction of the variant's search tokens found in the page title. */
+  score: z.number(),
+  source: z.enum(MARKET_SOURCES),
+});
+export type MarketLinkCandidate = z.infer<typeof marketLinkCandidateSchema>;
+
+export const marketLinkSuggestionsDtoSchema = z.object({
+  query: z.string(),
+  /** Public Back Market search URL for this query — open in a browser as a manual fallback. */
+  searchUrl: z.string(),
+  candidates: z.array(marketLinkCandidateSchema),
+  error: z.string().nullable(),
+});
+export type MarketLinkSuggestionsDto = z.infer<typeof marketLinkSuggestionsDtoSchema>;
+
+export const marketSyncRunResultSchema = z.object({
+  fetched: z.number(),
+  succeeded: z.number(),
+  failed: z.number(),
+  autoApplied: z.number(),
+  pendingReview: z.number(),
+  unchanged: z.number(),
+});
+export type MarketSyncRunResult = z.infer<typeof marketSyncRunResultSchema>;
+
+export const decideProposalSchema = z.object({ decision: z.enum(["APPROVE", "REJECT"]) });
+export type DecideProposalRequest = z.infer<typeof decideProposalSchema>;
+
+/* ------------------------------------------------------------------ *
  * Back office — auth, users, catalog management, promos, dashboard
  * ------------------------------------------------------------------ */
 

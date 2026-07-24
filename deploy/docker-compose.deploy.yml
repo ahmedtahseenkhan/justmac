@@ -36,6 +36,9 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       API_PORT: "4000"
       API_CORS_ORIGIN: ${API_CORS_ORIGIN}
+      # Scraping proxy for the Back Market price feed ({{URL}} = url-encoded target).
+      # Direct fetches are blocked by DataDome, so leave empty to disable scraping.
+      SCRAPER_PROXY_URL: ${SCRAPER_PROXY_URL:-}
     depends_on:
       postgres:
         condition: service_healthy

@@ -17,6 +17,7 @@ import { AffiliateModule } from "./affiliate/affiliate.module";
 import { PriceWatchModule } from "./price-watch/price-watch.module";
 import { CatalogAdminModule } from "./catalog-admin/catalog-admin.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
+import { MarketPriceModule } from "./market-price/market-price.module";
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { DashboardModule } from "./dashboard/dashboard.module";
     AdminModule,
     CatalogAdminModule,
     DashboardModule,
+    MarketPriceModule,
     B2bModule,
     PriceWatchModule,
   ],
