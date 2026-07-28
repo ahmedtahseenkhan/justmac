@@ -15,7 +15,7 @@ import {
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { MarketPriceService } from "./market-price.service";
 
-// Back Market price feed — admin only.
+// Marketplace price feed (Back Market / Gazelle / plug.tech) — admin only.
 @Controller("admin/market-prices")
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles("ADMIN")
@@ -55,6 +55,16 @@ export class MarketPriceController {
   @Post("run")
   run() {
     return this.market.runSync();
+  }
+
+  @Post("auto-match")
+  autoMatch() {
+    return this.market.autoMatchAll();
+  }
+
+  @Post("links/:variantId/verify")
+  verifyLink(@Param("variantId") variantId: string, @CurrentUser() user: JwtPayload) {
+    return this.market.verifyLink(variantId, user.email);
   }
 
   @Post("links/:variantId/refresh")

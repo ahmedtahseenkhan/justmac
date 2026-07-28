@@ -721,6 +721,12 @@ export const priceProposalDtoSchema = z.object({
   modelName: z.string(),
   variantLabel: z.string(),
   sourcePrice: z.number().nullable(),
+  /** Which marketplace the price came from + the listing staff should eyeball. */
+  source: z.enum(MARKET_SOURCES).nullable(),
+  sourceUrl: z.string().nullable(),
+  sourceTitle: z.string().nullable(),
+  /** false = the product match itself is unverified (approving verifies it too). */
+  linkVerified: z.boolean().nullable(),
   oldBase: z.number().nullable(),
   newBase: z.number(),
   newFloor: z.number(),
@@ -745,7 +751,15 @@ export const marketVariantRowSchema = z.object({
   categoryName: z.string(),
   baseValue: z.number().nullable(),
   link: z
-    .object({ url: z.string(), active: z.boolean(), source: z.enum(MARKET_SOURCES) })
+    .object({
+      url: z.string(),
+      active: z.boolean(),
+      source: z.enum(MARKET_SOURCES),
+      autoMatched: z.boolean(),
+      matchScore: z.number().nullable(),
+      matchTitle: z.string().nullable(),
+      verified: z.boolean(),
+    })
     .nullable(),
   lastSnapshot: marketSnapshotDtoSchema.nullable(),
   hasPendingProposal: z.boolean(),
@@ -779,6 +793,8 @@ export const marketLinkSuggestionsDtoSchema = z.object({
 export type MarketLinkSuggestionsDto = z.infer<typeof marketLinkSuggestionsDtoSchema>;
 
 export const marketSyncRunResultSchema = z.object({
+  /** Variants newly linked by the auto-matcher during this run. */
+  autoMatched: z.number(),
   fetched: z.number(),
   succeeded: z.number(),
   failed: z.number(),
@@ -786,6 +802,13 @@ export const marketSyncRunResultSchema = z.object({
   pendingReview: z.number(),
   unchanged: z.number(),
 });
+
+export const autoMatchResultSchema = z.object({
+  scanned: z.number(),
+  matched: z.number(),
+  skipped: z.number(),
+});
+export type AutoMatchResult = z.infer<typeof autoMatchResultSchema>;
 export type MarketSyncRunResult = z.infer<typeof marketSyncRunResultSchema>;
 
 export const decideProposalSchema = z.object({ decision: z.enum(["APPROVE", "REJECT"]) });

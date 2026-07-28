@@ -50,6 +50,7 @@ import type {
   DashboardDto,
   CreateUserRequest,
   UpdateUserRequest,
+  AutoMatchResult,
   MarketOverviewDto,
   MarketLinkSuggestionsDto,
   MarketSyncConfigDto,
@@ -253,6 +254,9 @@ export const api = {
   marketDeleteLink: (variantId: string) =>
     http<{ ok: boolean }>(`/admin/market-prices/links/${variantId}`, { method: "DELETE" }),
   marketRunSync: () => http<MarketSyncRunResult>(`/admin/market-prices/run`, { method: "POST" }),
+  marketAutoMatch: () => http<AutoMatchResult>(`/admin/market-prices/auto-match`, { method: "POST" }),
+  marketVerifyLink: (variantId: string) =>
+    http<{ ok: boolean }>(`/admin/market-prices/links/${variantId}/verify`, { method: "POST" }),
   marketRefreshOne: (variantId: string) =>
     http<MarketSyncRunResult>(`/admin/market-prices/links/${variantId}/refresh`, { method: "POST" }),
   marketDecideProposal: (id: string, decision: "APPROVE" | "REJECT") =>

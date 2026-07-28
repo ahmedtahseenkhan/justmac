@@ -39,10 +39,11 @@ export default function MarketPricesPage() {
       <div>
         <h1 className="text-3xl font-extrabold tracking-tight">Market prices</h1>
         <p className="mt-1 text-ink-500">
-          Pulls reference prices from Back Market, Gazelle, and plug.tech on a schedule and updates
-          each variant&apos;s base value. Condition percentages (flawless / good / …) stay in the{" "}
-          <Link href="/admin/catalog" className="text-brand-700 underline">catalog editor</Link> — the
-          fetched price only replaces the base the formula starts from.
+          Fully automatic: each sync finds every catalog device on Back Market, Gazelle, and
+          plug.tech, pulls the current price, and updates the variant&apos;s base value. Staff only
+          verify — new matches and big price moves land in the review queue below. Condition
+          percentages (flawless / good / …) stay in the{" "}
+          <Link href="/admin/catalog" className="text-brand-700 underline">catalog editor</Link>.
         </p>
       </div>
       {error && <p className="text-red-600">{error}</p>}
@@ -98,16 +99,16 @@ function ConfigSection({ data, onChange }: { data: MarketOverviewDto; onChange: 
             {c.enabled ? (c.nextRunAt ? new Date(c.nextRunAt).toLocaleString() : "pending schedule") : "paused"}
           </p>
         </div>
-        <button className="btn-primary" disabled={busy || linked === 0} onClick={runNow}>
-          {busy ? "Working…" : "Run sync now"}
+        <button className="btn-primary" disabled={busy} onClick={runNow}>
+          {busy ? "Working… (searching marketplaces)" : "Auto-match & sync now"}
         </button>
       </div>
 
       {runResult && (
         <p className="mt-3 rounded-lg bg-brand-50 px-3 py-2 text-sm text-brand-700">
-          Fetched {runResult.fetched} · ok {runResult.succeeded} · failed {runResult.failed} ·
-          auto-applied {runResult.autoApplied} · pending review {runResult.pendingReview} · unchanged{" "}
-          {runResult.unchanged}
+          Newly matched {runResult.autoMatched} · fetched {runResult.fetched} · ok {runResult.succeeded} ·
+          failed {runResult.failed} · auto-applied {runResult.autoApplied} · pending review{" "}
+          {runResult.pendingReview} · unchanged {runResult.unchanged}
         </p>
       )}
       {runError && <p className="mt-3 text-sm text-red-600">{runError}</p>}
@@ -229,15 +230,17 @@ function ApprovalsSection({ pending, onDecided }: { pending: PriceProposalDto[];
         Needs review <span className="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-sm text-amber-800">{pending.length}</span>
       </h2>
       <p className="text-sm text-ink-500">
-        First-time prices and moves beyond the auto-apply threshold. Approving updates the
-        variant&apos;s base value (and floor/ceiling) immediately.
+        New product matches, first-time prices, and moves beyond the auto-apply threshold. Check the
+        matched listing, then approve — the base value (and floor/ceiling) update immediately, and
+        the product match is remembered so future small moves apply on their own.
       </p>
       <div className="mt-4 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-400">
               <th className="py-2 pr-4">Device</th>
-              <th className="py-2 pr-4 text-right">Back Market</th>
+              <th className="py-2 pr-4">Matched listing</th>
+              <th className="py-2 pr-4 text-right">Market price</th>
               <th className="py-2 pr-4 text-right">Current base</th>
               <th className="py-2 pr-4 text-right">Proposed base</th>
               <th className="py-2 pr-4 text-right">Change</th>
@@ -250,6 +253,25 @@ function ApprovalsSection({ pending, onDecided }: { pending: PriceProposalDto[];
                 <td className="py-2 pr-4">
                   <span className="font-medium">{p.modelName}</span>{" "}
                   <span className="text-ink-500">{p.variantLabel}</span>
+                  {p.linkVerified === false && (
+                    <span className="ml-1 rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold text-violet-700">
+                      new match
+                    </span>
+                  )}
+                </td>
+                <td className="max-w-56 py-2 pr-4">
+                  {p.source && <SourceBadge source={p.source} />}
+                  {p.sourceUrl && (
+                    <a
+                      href={p.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="ml-1 text-xs text-brand-700 underline"
+                      title={p.sourceTitle ?? p.sourceUrl}
+                    >
+                      {p.sourceTitle ? truncate(p.sourceTitle, 40) : "View listing"} ↗
+                    </a>
+                  )}
                 </td>
                 <td className="py-2 pr-4 text-right tabular-nums">
                   {p.sourcePrice !== null ? money(p.sourcePrice) : "—"}
@@ -306,15 +328,20 @@ function MappingSection({ rows, onChange }: { rows: MarketVariantRow[]; onChange
     return Array.from(byModel.values());
   }, [rows]);
 
+  const linked = rows.filter((r) => r.link).length;
+  const verified = rows.filter((r) => r.link?.verified).length;
+  const unmatched = rows.length - linked;
+
   return (
     <section>
-      <h2 className="text-lg font-bold">Marketplace mapping</h2>
+      <h2 className="text-lg font-bold">Product matches</h2>
       <p className="text-sm text-ink-500">
-        Paste a product URL from Back Market, Gazelle, or plug.tech next to each variant you want
-        tracked, or use <em>Find</em> to get suggestions. Only linked variants are fetched — matching
-        stays manual on purpose, so a wrong listing never silently re-prices a device. Gazelle and
-        plug.tech list per-condition prices: pick the exact condition on their site so the URL carries
-        it, or the lowest-priced condition is used.
+        The sync matches each variant to a marketplace listing automatically — you only confirm.{" "}
+        <span className="font-medium text-ink-700">
+          {verified} verified · {linked - verified} awaiting verification · {unmatched} unmatched
+        </span>
+        . Unmatched variants are retried on every sync; you can also match one manually with{" "}
+        <em>Find</em> or by pasting a product URL.
       </p>
       <div className="mt-4 space-y-4">
         {models.map((variants) => (
@@ -333,6 +360,10 @@ function MappingSection({ rows, onChange }: { rows: MarketVariantRow[]; onChange
       </div>
     </section>
   );
+}
+
+function truncate(s: string, n: number): string {
+  return s.length > n ? `${s.slice(0, n - 1)}…` : s;
 }
 
 const SOURCE_STYLES: Record<MarketSource, string> = {
@@ -389,6 +420,7 @@ function VariantRow({ row, onChange }: { row: MarketVariantRow; onChange: () => 
   }
 
   const snap = row.lastSnapshot;
+  const link = row.link;
 
   return (
     <div className="rounded-xl border border-gray-100 p-3">
@@ -400,28 +432,37 @@ function VariantRow({ row, onChange }: { row: MarketVariantRow; onChange: () => 
             {row.hasPendingProposal && <span className="ml-1 text-amber-600">· review pending</span>}
           </p>
         </div>
-        <input
-          className="input min-w-64 flex-1"
-          placeholder="Product URL on backmarket.com / gazelle.com / plug.tech"
-          value={url}
-          disabled={busy}
-          onChange={(e) => setUrl(e.target.value)}
-        />
-        {row.link && <SourceBadge source={row.link.source} />}
-        <button className="btn-ghost px-3 py-1.5 text-xs" disabled={suggesting || busy} onClick={findSuggestions}>
-          {suggesting ? "Searching…" : "🔎 Find"}
-        </button>
-        {dirty && url.trim() && (
-          <button
-            className="btn-primary px-3 py-1.5 text-xs"
-            disabled={busy}
-            onClick={() => void run(() => api.marketUpsertLink(row.variantId, { url: url.trim(), active: true }))}
-          >
-            Save link
-          </button>
-        )}
-        {row.link && (
+
+        {link ? (
           <>
+            <SourceBadge source={link.source} />
+            <a
+              href={link.url}
+              target="_blank"
+              rel="noreferrer"
+              className="min-w-0 flex-1 truncate text-xs text-brand-700 underline"
+              title={link.matchTitle ?? link.url}
+            >
+              {link.matchTitle ?? link.url.replace(/^https?:\/\//, "")} ↗
+            </a>
+            {link.verified ? (
+              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                ✓ verified
+              </span>
+            ) : (
+              <>
+                <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-700">
+                  auto-matched{link.matchScore !== null ? ` ${Math.round(link.matchScore * 100)}%` : ""}
+                </span>
+                <button
+                  className="btn-primary px-3 py-1.5 text-xs"
+                  disabled={busy}
+                  onClick={() => void run(() => api.marketVerifyLink(row.variantId))}
+                >
+                  ✓ Correct
+                </button>
+              </>
+            )}
             <button
               className="btn-ghost px-3 py-1.5 text-xs"
               disabled={busy}
@@ -432,12 +473,39 @@ function VariantRow({ row, onChange }: { row: MarketVariantRow; onChange: () => 
             <button
               className="btn-ghost px-3 py-1.5 text-xs text-red-600"
               disabled={busy}
+              title="Remove this match — the next sync will search again, or match manually below"
               onClick={() => void run(() => api.marketDeleteLink(row.variantId))}
             >
-              Unlink
+              {link.verified ? "Unlink" : "✕ Wrong product"}
             </button>
           </>
+        ) : (
+          <>
+            <span className="text-xs text-ink-400">
+              Not matched yet — will auto-match on the next sync
+            </span>
+            <button className="btn-ghost px-3 py-1.5 text-xs" disabled={suggesting || busy} onClick={findSuggestions}>
+              {suggesting ? "Searching…" : "🔎 Find"}
+            </button>
+            <input
+              className="input min-w-52 flex-1"
+              placeholder="…or paste a product URL"
+              value={url}
+              disabled={busy}
+              onChange={(e) => setUrl(e.target.value)}
+            />
+            {dirty && url.trim() && (
+              <button
+                className="btn-primary px-3 py-1.5 text-xs"
+                disabled={busy}
+                onClick={() => void run(() => api.marketUpsertLink(row.variantId, { url: url.trim(), active: true }))}
+              >
+                Save link
+              </button>
+            )}
+          </>
         )}
+
         {snap && (
           <div className="ml-auto text-right">
             {snap.status === "OK" && snap.price !== null ? (

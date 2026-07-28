@@ -333,6 +333,13 @@ model ExternalProductLink {
   source    String                @default("BACKMARKET")
   url       String
   active    Boolean               @default(true)
+  // Auto-matcher provenance: the sync searches the marketplaces and links the best
+  // candidate itself; staff verify. Until verifiedAt is set, price proposals from
+  // this link always wait for review (never auto-apply).
+  autoMatched Boolean             @default(false)
+  matchScore  Float? // 0..1 token-overlap score at match time
+  matchTitle  String? // listing title we matched, shown to staff for verification
+  verifiedAt  DateTime? // staff confirmed the match (or pasted the URL manually)
   snapshots MarketPriceSnapshot[]
   createdAt DateTime              @default(now())
   updatedAt DateTime              @updatedAt
