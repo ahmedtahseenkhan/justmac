@@ -350,7 +350,10 @@ model MarketPriceSnapshot {
   id        String              @id @default(cuid())
   link      ExternalProductLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
   linkId    String
-  price     Float? // null when the fetch/parse failed
+  price     Float? // reference price (best tier) — null when the fetch/parse failed
+  // Per-condition-tier prices from the listing, e.g. {"fair":152.99,"good":167.99,
+  // "excellent":179.99}. Null for sources that expose a single price (Back Market).
+  tierPrices Json?
   currency  String              @default("USD")
   status    String // OK | FETCH_ERROR | PARSE_ERROR
   error     String?
@@ -387,8 +390,15 @@ model MarketSyncConfig {
   enabled      Boolean   @default(true)
   cadenceDays  Int       @default(7) // 7 = weekly, 14 = bi-weekly
   autoApplyPct Float     @default(0.25) // |change| above this fraction needs approval
-  floorPct     Float     @default(0.35) // new floor = base * floorPct
+  // Keep low: the floor applies to every condition, and formula-priced "damaged"
+  // offers sit near 10% of base — a high floor would override them upward.
+  floorPct     Float     @default(0.05) // new floor = base * floorPct
   ceilingPct   Float     @default(1.15) // new ceiling = base * ceilingPct
+  // The client's buyback formula: which marketplace tier each cosmetic condition
+  // prices off, and at what percentage. [{key:"flawless",tier:"excellent",pct:50},…]
+  // Applied when a proposal is approved/auto-applied: updates the model's cosmetic
+  // ConditionOption multipliers so quotes follow the formula.
+  conditionRules Json?
   lastRunAt    DateTime?
   nextRunAt    DateTime?
   updatedAt    DateTime  @updatedAt

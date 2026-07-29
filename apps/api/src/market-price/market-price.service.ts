@@ -7,15 +7,18 @@ import {
   OnModuleInit,
 } from "@nestjs/common";
 import type {
+  ConditionRule,
   MarketOverviewDto,
   MarketSnapshotDto,
   MarketSource,
   MarketSyncConfigDto,
   MarketSyncRunResult,
   PriceProposalDto,
+  TierPrices,
   UpdateMarketSyncConfigRequest,
   UpsertMarketLinkRequest,
 } from "@sellme/shared";
+import { DEFAULT_CONDITION_RULES, resolveRulePrice } from "@sellme/shared";
 import { PrismaService } from "../prisma/prisma.service";
 import { ScrapeFetcherService } from "./scrape-fetcher.service";
 import { parseBackmarketPrice } from "./backmarket.parser";
@@ -342,12 +345,22 @@ export class MarketPriceService implements OnModuleInit, OnModuleDestroy {
 
         result.succeeded += 1;
         const snapshot = await this.prisma.marketPriceSnapshot.create({
-          data: { linkId: link.id, status: "OK", price: parsed.price, currency: parsed.currency },
+          data: {
+            linkId: link.id,
+            status: "OK",
+            price: parsed.price,
+            tierPrices: parsed.tierPrices ?? undefined,
+            currency: parsed.currency,
+          },
         });
 
-        const outcome = await this.propose(link.variantId, snapshot.id, parsed.price, config, {
+        // Base value = best-tier price (what a flawless unit resells for). Falls back
+        // to the single reference price for single-price sources (Back Market).
+        const referenceBase = bestTierPrice(parsed.tierPrices) ?? parsed.price;
+        const outcome = await this.propose(link.variantId, snapshot.id, referenceBase, config, {
           // Unverified auto-matches never auto-apply — staff must confirm the product first.
           requireReview: !link.verifiedAt,
+          tierPrices: parsed.tierPrices ?? null,
         });
         result[outcome] += 1;
       }
@@ -376,7 +389,7 @@ export class MarketPriceService implements OnModuleInit, OnModuleDestroy {
   private async fetchPrice(
     url: string,
   ): Promise<
-    | { status: "OK"; price: number; currency: string }
+    | { status: "OK"; price: number; currency: string; tierPrices: TierPrices | null }
     | { status: "FETCH_ERROR" | "PARSE_ERROR"; error: string }
   > {
     const shopify = shopifySourceForUrl(url);
@@ -400,14 +413,19 @@ export class MarketPriceService implements OnModuleInit, OnModuleDestroy {
             : "No priced variants on the product",
         };
       }
-      return { status: "OK", price: parsed.price, currency: parsed.currency };
+      return {
+        status: "OK",
+        price: parsed.price,
+        currency: parsed.currency,
+        tierPrices: Object.keys(parsed.tierPrices).length > 0 ? parsed.tierPrices : null,
+      };
     }
 
     const fetched = await this.fetcher.fetchPage(url);
     if (!fetched.ok) return { status: "FETCH_ERROR", error: fetched.error };
     const parsed = parseBackmarketPrice(fetched.html);
     if (!parsed) return { status: "PARSE_ERROR", error: "No price found in page" };
-    return { status: "OK", price: parsed.price, currency: parsed.currency };
+    return { status: "OK", price: parsed.price, currency: parsed.currency, tierPrices: null };
   }
 
   /**
@@ -418,15 +436,27 @@ export class MarketPriceService implements OnModuleInit, OnModuleDestroy {
     variantId: string,
     snapshotId: string,
     newBase: number,
-    config: { autoApplyPct: number; floorPct: number; ceilingPct: number },
-    opts: { requireReview?: boolean } = {},
+    config: { autoApplyPct: number; floorPct: number; ceilingPct: number; conditionRules?: unknown },
+    opts: { requireReview?: boolean; tierPrices?: TierPrices | null } = {},
   ): Promise<"autoApplied" | "pendingReview" | "unchanged"> {
     const current = await this.prisma.priceBase.findFirst({
       where: { variantId, expiresAt: null },
       orderBy: { effectiveAt: "desc" },
     });
     const oldBase = current?.baseValue ?? null;
-    if (oldBase !== null && Math.abs(newBase - oldBase) < MIN_MEANINGFUL_MOVE) return "unchanged";
+    if (oldBase !== null && Math.abs(newBase - oldBase) < MIN_MEANINGFUL_MOVE) {
+      // Price didn't move, but staff may have edited the formula or floor/ceiling
+      // config since the last apply — keep those current on verified links.
+      if (!opts.requireReview && current) {
+        const wantFloor = Math.round(oldBase * config.floorPct);
+        const wantCeiling = Math.round(oldBase * config.ceilingPct);
+        if (current.floor !== wantFloor || current.ceiling !== wantCeiling) {
+          await this.applyPriceBase(variantId, oldBase, wantFloor, wantCeiling);
+        }
+        await this.applyConditionFormula(variantId, opts.tierPrices ?? null, oldBase);
+      }
+      return "unchanged";
+    }
 
     // Don't stack review items: one PENDING proposal per variant, refreshed in place
     // so the queue always shows the latest fetched price.
@@ -467,9 +497,50 @@ export class MarketPriceService implements OnModuleInit, OnModuleDestroy {
     });
     if (autoApply) {
       await this.applyPriceBase(variantId, proposal.newBase, proposal.newFloor, proposal.newCeiling);
+      await this.applyConditionFormula(variantId, opts.tierPrices ?? null, proposal.newBase);
       return "autoApplied";
     }
     return "pendingReview";
+  }
+
+  /**
+   * The client's formula, applied to the quote engine's inputs: for each cosmetic
+   * condition option of the variant's model, multiplier = (pct% × that tier's market
+   * price) / base. With base = best-tier price, a flawless quote = pct_flawless% of
+   * the best-tier price, a good quote = pct_good% of the good-tier price, and so on
+   * (margin/market factors still apply on top — staff control those separately).
+   */
+  private async applyConditionFormula(
+    variantId: string,
+    tierPrices: TierPrices | null,
+    base: number,
+  ) {
+    if (base <= 0) return;
+    const config = await this.getConfigRow();
+    const rules = (config.conditionRules as ConditionRule[] | null) ?? DEFAULT_CONDITION_RULES;
+
+    const variant = await this.prisma.variant.findUnique({
+      where: { id: variantId },
+      include: {
+        model: {
+          include: { conditionAttributes: { where: { kind: "COSMETIC" }, include: { options: true } } },
+        },
+      },
+    });
+    if (!variant) return;
+
+    for (const attr of variant.model.conditionAttributes) {
+      for (const option of attr.options) {
+        const rule = rules.find((r) => r.key === option.key);
+        if (!rule) continue;
+        const tierPrice = resolveRulePrice(rule, tierPrices, base);
+        const multiplier = clamp(((rule.pct / 100) * tierPrice) / base, 0, 2);
+        await this.prisma.conditionOption.update({
+          where: { id: option.id },
+          data: { multiplier: round4(multiplier) },
+        });
+      }
+    }
   }
 
   /** Versioned write, same shape as the pricing console: expire current row, insert new. */
@@ -489,12 +560,20 @@ export class MarketPriceService implements OnModuleInit, OnModuleDestroy {
   /* ------------------------------ proposals ------------------------------ */
 
   async decideProposal(id: string, decision: "APPROVE" | "REJECT", decidedBy: string) {
-    const proposal = await this.prisma.priceProposal.findUnique({ where: { id } });
+    const proposal = await this.prisma.priceProposal.findUnique({
+      where: { id },
+      include: { snapshot: true },
+    });
     if (!proposal) throw new NotFoundException("Proposal not found");
     if (proposal.status !== "PENDING") throw new BadRequestException("Proposal already decided");
 
     if (decision === "APPROVE") {
       await this.applyPriceBase(proposal.variantId, proposal.newBase, proposal.newFloor, proposal.newCeiling);
+      await this.applyConditionFormula(
+        proposal.variantId,
+        (proposal.snapshot?.tierPrices as TierPrices | null) ?? null,
+        proposal.newBase,
+      );
       // Approving a price from an auto-matched link is also confirmation the product
       // is right — verify the link so future small moves can auto-apply.
       await this.prisma.externalProductLink.updateMany({
@@ -583,6 +662,7 @@ function toConfigDto(c: {
   autoApplyPct: number;
   floorPct: number;
   ceilingPct: number;
+  conditionRules: unknown;
   lastRunAt: Date | null;
   nextRunAt: Date | null;
 }): MarketSyncConfigDto {
@@ -592,6 +672,7 @@ function toConfigDto(c: {
     autoApplyPct: c.autoApplyPct,
     floorPct: c.floorPct,
     ceilingPct: c.ceilingPct,
+    conditionRules: (c.conditionRules as ConditionRule[] | null) ?? DEFAULT_CONDITION_RULES,
     lastRunAt: c.lastRunAt?.toISOString() ?? null,
     nextRunAt: c.nextRunAt?.toISOString() ?? null,
   };
@@ -601,12 +682,23 @@ function toSnapshotDto(s: any): MarketSnapshotDto {
   return {
     id: s.id,
     price: s.price,
+    tierPrices: s.tierPrices ?? null,
     currency: s.currency,
     status: s.status,
     error: s.error,
     fetchedAt: s.fetchedAt.toISOString(),
   };
 }
+
+/** Highest tier price = what a flawless unit resells for. */
+function bestTierPrice(tiers: TierPrices | null | undefined): number | null {
+  if (!tiers) return null;
+  const values = Object.values(tiers);
+  return values.length > 0 ? Math.max(...values) : null;
+}
+
+const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
+const round4 = (n: number) => Math.round(n * 10000) / 10000;
 
 function toProposalDto(
   p: any,
@@ -621,6 +713,7 @@ function toProposalDto(
     modelName,
     variantLabel,
     sourcePrice,
+    tierPrices: (p.snapshot?.tierPrices as PriceProposalDto["tierPrices"]) ?? null,
     source: (link?.source ?? null) as PriceProposalDto["source"],
     sourceUrl: link?.url ?? null,
     sourceTitle: link?.matchTitle ?? null,

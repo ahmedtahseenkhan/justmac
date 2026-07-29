@@ -683,6 +683,48 @@ export const upsertMarketLinkSchema = z.object({
 });
 export type UpsertMarketLinkRequest = z.infer<typeof upsertMarketLinkSchema>;
 
+/** Condition tiers refurb marketplaces sell in (normalized from listing titles). */
+export const MARKET_TIERS = ["fair", "good", "great", "excellent", "premium"] as const;
+export type MarketTier = (typeof MARKET_TIERS)[number];
+
+/** What a condition rule can price off: a specific tier, or the cheapest available. */
+export const RULE_TIERS = [...MARKET_TIERS, "lowest"] as const;
+
+// One line of the client's buyback formula: <cosmetic option key> = <pct>% of the
+// marketplace's <tier> price. Keys match ConditionOption.key (flawless/good/fair/…).
+export const conditionRuleSchema = z.object({
+  key: z.string().min(1),
+  tier: z.enum(RULE_TIERS),
+  pct: z.number().min(0).max(100),
+});
+export type ConditionRule = z.infer<typeof conditionRuleSchema>;
+
+/** Default formula (the client's "flawless = 50%, good = 30%, …" starting point). */
+export const DEFAULT_CONDITION_RULES: ConditionRule[] = [
+  { key: "flawless", tier: "excellent", pct: 50 },
+  { key: "good", tier: "good", pct: 30 },
+  { key: "fair", tier: "fair", pct: 20 },
+  { key: "cracked", tier: "fair", pct: 10 },
+  { key: "damaged", tier: "fair", pct: 10 },
+];
+
+/** Tier→price map parsed from a listing, e.g. {"fair":152.99,"excellent":179.99}. */
+export const tierPricesSchema = z.record(z.number());
+export type TierPrices = z.infer<typeof tierPricesSchema>;
+
+/** Resolve a rule against fetched tier prices (fallback: cheapest tier, then reference). */
+export function resolveRulePrice(
+  rule: ConditionRule,
+  tiers: TierPrices | null,
+  reference: number,
+): number {
+  if (tiers && Object.keys(tiers).length > 0) {
+    if (rule.tier !== "lowest" && tiers[rule.tier] !== undefined) return tiers[rule.tier];
+    return Math.min(...Object.values(tiers));
+  }
+  return reference;
+}
+
 export const updateMarketSyncConfigSchema = z
   .object({
     enabled: z.boolean(),
@@ -690,6 +732,7 @@ export const updateMarketSyncConfigSchema = z
     autoApplyPct: z.number().min(0).max(1),
     floorPct: z.number().min(0.05).max(1),
     ceilingPct: z.number().min(1).max(3),
+    conditionRules: z.array(conditionRuleSchema).min(1).max(12),
   })
   .partial();
 export type UpdateMarketSyncConfigRequest = z.infer<typeof updateMarketSyncConfigSchema>;
@@ -700,6 +743,7 @@ export const marketSyncConfigDtoSchema = z.object({
   autoApplyPct: z.number(),
   floorPct: z.number(),
   ceilingPct: z.number(),
+  conditionRules: z.array(conditionRuleSchema),
   lastRunAt: z.string().nullable(),
   nextRunAt: z.string().nullable(),
 });
@@ -708,6 +752,7 @@ export type MarketSyncConfigDto = z.infer<typeof marketSyncConfigDtoSchema>;
 export const marketSnapshotDtoSchema = z.object({
   id: z.string(),
   price: z.number().nullable(),
+  tierPrices: tierPricesSchema.nullable(),
   currency: z.string(),
   status: z.enum(SNAPSHOT_STATUSES),
   error: z.string().nullable(),
@@ -721,6 +766,8 @@ export const priceProposalDtoSchema = z.object({
   modelName: z.string(),
   variantLabel: z.string(),
   sourcePrice: z.number().nullable(),
+  /** Per-tier marketplace prices behind this proposal (null for single-price sources). */
+  tierPrices: tierPricesSchema.nullable(),
   /** Which marketplace the price came from + the listing staff should eyeball. */
   source: z.enum(MARKET_SOURCES).nullable(),
   sourceUrl: z.string().nullable(),

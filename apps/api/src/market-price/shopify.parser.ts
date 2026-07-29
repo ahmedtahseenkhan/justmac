@@ -52,7 +52,16 @@ export interface ShopifyPrice {
   currency: string;
   /** e.g. "Black / Good" — recorded so the admin can see which config was priced. */
   variantTitle: string;
+  /**
+   * Price per condition tier, e.g. { fair: 152.99, good: 167.99, excellent: 179.99 }.
+   * Scoped to the pinned variant's color when a ?variant= id is given; otherwise the
+   * cheapest price per tier across all colors.
+   */
+  tierPrices: Record<string, number>;
 }
+
+/** Condition keywords marketplaces use in variant titles ("Black / 64GB / Good"). */
+const TIER_KEYWORDS = ["fair", "good", "great", "excellent", "premium"] as const;
 
 export function parseShopifyProduct(json: unknown, variantId: string | null): ShopifyPrice | null {
   if (!json || typeof json !== "object") return null;
@@ -67,9 +76,13 @@ export function parseShopifyProduct(json: unknown, variantId: string | null): Sh
       const obj = v as Record<string, unknown>;
       const price = toNumber(obj.price);
       if (price === null) return null;
-      return { id: String(obj.id ?? ""), title: String(obj.title ?? ""), price };
+      const title = String(obj.title ?? "");
+      return { id: String(obj.id ?? ""), title, price, ...splitTier(title) };
     })
-    .filter((v): v is { id: string; title: string; price: number } => v !== null);
+    .filter(
+      (v): v is { id: string; title: string; price: number; tier: string | null; rest: string } =>
+        v !== null,
+    );
   if (usable.length === 0) return null;
 
   const chosen = variantId
@@ -77,7 +90,26 @@ export function parseShopifyProduct(json: unknown, variantId: string | null): Sh
     : usable.reduce((min, v) => (v.price < min.price ? v : min));
   if (!chosen) return null; // pinned variant no longer exists → surface as parse error
 
-  return { price: chosen.price, currency: "USD", variantTitle: chosen.title };
+  // Tier map: when pinned, stay within the pinned variant's color/config ("rest");
+  // otherwise take the cheapest per tier across the whole product.
+  const pool = variantId ? usable.filter((v) => v.rest === chosen.rest) : usable;
+  const tierPrices: Record<string, number> = {};
+  for (const v of pool) {
+    if (!v.tier) continue;
+    if (tierPrices[v.tier] === undefined || v.price < tierPrices[v.tier]) {
+      tierPrices[v.tier] = v.price;
+    }
+  }
+
+  return { price: chosen.price, currency: "USD", variantTitle: chosen.title, tierPrices };
+}
+
+/** "Black / 64GB / Good" → { tier: "good", rest: "black / 64gb" }. */
+function splitTier(title: string): { tier: string | null; rest: string } {
+  const parts = title.split("/").map((p) => p.trim().toLowerCase());
+  const tierIdx = parts.findIndex((p) => (TIER_KEYWORDS as readonly string[]).includes(p));
+  if (tierIdx === -1) return { tier: null, rest: parts.join(" / ") };
+  return { tier: parts[tierIdx], rest: parts.filter((_, i) => i !== tierIdx).join(" / ") };
 }
 
 export interface ShopifySuggestCandidate {

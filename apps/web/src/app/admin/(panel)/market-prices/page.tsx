@@ -3,14 +3,16 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type {
+  ConditionRule,
   MarketLinkSuggestionsDto,
   MarketOverviewDto,
   MarketSource,
   MarketSyncRunResult,
   MarketVariantRow,
   PriceProposalDto,
+  TierPrices,
 } from "@sellme/shared";
-import { MARKET_SOURCE_LABELS } from "@sellme/shared";
+import { MARKET_SOURCE_LABELS, RULE_TIERS } from "@sellme/shared";
 import { api } from "@/lib/api";
 import { money } from "@/lib/format";
 
@@ -151,7 +153,7 @@ function ConfigSection({ data, onChange }: { data: MarketOverviewDto; onChange: 
           value={c.floorPct}
           disabled={busy}
           onSave={(v) => void save({ floorPct: v })}
-          helper="Never quote below this"
+          helper="Keep low — it applies to damaged too"
         />
         <PctField
           label="Ceiling (% of base)"
@@ -161,7 +163,106 @@ function ConfigSection({ data, onChange }: { data: MarketOverviewDto; onChange: 
           helper="Never quote above this"
         />
       </div>
+
+      <FormulaEditor rules={c.conditionRules} disabled={busy} onSave={(r) => void save({ conditionRules: r })} />
     </section>
+  );
+}
+
+/* --------------------------- Condition formula --------------------------- */
+
+function FormulaEditor({
+  rules,
+  disabled,
+  onSave,
+}: {
+  rules: ConditionRule[];
+  disabled: boolean;
+  onSave: (rules: ConditionRule[]) => void;
+}) {
+  const [draft, setDraft] = useState<ConditionRule[]>(rules);
+  useEffect(() => setDraft(rules), [rules]);
+  const changed = JSON.stringify(draft) !== JSON.stringify(rules);
+
+  function patch(i: number, p: Partial<ConditionRule>) {
+    setDraft((d) => d.map((r, j) => (j === i ? { ...r, ...p } : r)));
+  }
+
+  return (
+    <div className="mt-5 rounded-xl border border-gray-100 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-bold">Condition formula</h3>
+          <p className="text-xs text-ink-500">
+            What each cosmetic condition pays, as a percentage of the marketplace price for a tier.
+            Applied to a device when its price is approved (or auto-applies after verification).
+          </p>
+        </div>
+        {changed && (
+          <button className="btn-primary px-3 py-1.5 text-xs" disabled={disabled} onClick={() => onSave(draft)}>
+            Save formula
+          </button>
+        )}
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {draft.map((r, i) => (
+          <div key={r.key} className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 text-sm">
+            <span className="w-20 font-medium capitalize">{r.key}</span>
+            <span className="text-ink-400">=</span>
+            <input
+              type="number"
+              className="input w-16 px-2 py-1 text-right"
+              value={r.pct}
+              min={0}
+              max={100}
+              disabled={disabled}
+              onChange={(e) => patch(i, { pct: Number(e.target.value) })}
+            />
+            <span className="text-ink-400">% of</span>
+            <select
+              className="input flex-1 px-2 py-1"
+              value={r.tier}
+              disabled={disabled}
+              onChange={(e) => patch(i, { tier: e.target.value as ConditionRule["tier"] })}
+            >
+              {RULE_TIERS.map((t) => (
+                <option key={t} value={t}>
+                  {t === "lowest" ? "cheapest tier" : `${t} price`}
+                </option>
+              ))}
+            </select>
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 text-[11px] text-ink-400">
+        Tiers come from the marketplace listing (e.g. Gazelle sells Fair / Good / Excellent). If a
+        listing doesn&apos;t have the chosen tier, the cheapest available tier is used. Category
+        margin and market-demand factors still apply on top — set those to neutral in Pricing if you
+        want offers to equal these percentages exactly.
+      </p>
+    </div>
+  );
+}
+
+function TierChips({ tiers, currency }: { tiers: TierPrices; currency?: string }) {
+  const order = ["fair", "good", "great", "excellent", "premium"];
+  const entries = Object.entries(tiers).sort(
+    (a, b) => order.indexOf(a[0]) - order.indexOf(b[0]),
+  );
+  if (entries.length === 0) return null;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      {entries.map(([tier, price]) => (
+        <span
+          key={tier}
+          className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-ink-700"
+          title={`${tier} condition on the marketplace`}
+        >
+          {tier.slice(0, 1).toUpperCase()}
+          {tier.slice(1, 4)} {money(price, currency)}
+        </span>
+      ))}
+    </span>
   );
 }
 
@@ -274,7 +375,13 @@ function ApprovalsSection({ pending, onDecided }: { pending: PriceProposalDto[];
                   )}
                 </td>
                 <td className="py-2 pr-4 text-right tabular-nums">
-                  {p.sourcePrice !== null ? money(p.sourcePrice) : "—"}
+                  {p.tierPrices && Object.keys(p.tierPrices).length > 0 ? (
+                    <TierChips tiers={p.tierPrices} />
+                  ) : p.sourcePrice !== null ? (
+                    money(p.sourcePrice)
+                  ) : (
+                    "—"
+                  )}
                 </td>
                 <td className="py-2 pr-4 text-right tabular-nums">
                   {p.oldBase !== null ? money(p.oldBase) : <span className="text-ink-400">first price</span>}
@@ -509,7 +616,11 @@ function VariantRow({ row, onChange }: { row: MarketVariantRow; onChange: () => 
         {snap && (
           <div className="ml-auto text-right">
             {snap.status === "OK" && snap.price !== null ? (
-              <p className="text-sm font-semibold tabular-nums text-brand-700">{money(snap.price, snap.currency)}</p>
+              snap.tierPrices && Object.keys(snap.tierPrices).length > 0 ? (
+                <TierChips tiers={snap.tierPrices} currency={snap.currency} />
+              ) : (
+                <p className="text-sm font-semibold tabular-nums text-brand-700">{money(snap.price, snap.currency)}</p>
+              )
             ) : (
               <p className="text-xs font-medium text-red-600">
                 {snap.status === "FETCH_ERROR" ? "Fetch failed" : "Parse failed"}
