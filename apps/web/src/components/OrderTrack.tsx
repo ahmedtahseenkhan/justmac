@@ -53,6 +53,9 @@ export function OrderTrack({
 }) {
   const [order, setOrder] = useState(initial);
   const [busy, setBusy] = useState(false);
+  const [adjustDraft, setAdjustDraft] = useState<Record<string, string>>({});
+  const [adjustNote, setAdjustNote] = useState("");
+  const [adjustError, setAdjustError] = useState<string | null>(null);
 
   const currentIdx = TIMELINE.indexOf(order.state);
   const nextStates = LIFECYCLE_TRANSITIONS[order.state] ?? [];
@@ -92,6 +95,34 @@ export function OrderTrack({
     (s) => !["ACCEPTED", "REJECTED", "OFFER_ADJUSTED"].includes(s),
   );
   const canAdjustViaGrading = nextStates.includes("OFFER_ADJUSTED");
+  // Manual price edit is allowed until the customer has answered the offer.
+  const canAdjustManually =
+    admin &&
+    ["QUOTE_LOCKED", "LABEL_ISSUED", "IN_TRANSIT", "RECEIVED", "INSPECTING", "OFFER_ADJUSTED"].includes(
+      order.state,
+    );
+
+  async function submitAdjust() {
+    setBusy(true);
+    setAdjustError(null);
+    try {
+      const items = order.items.map((it) => ({
+        orderItemId: it.id,
+        offer: Number(adjustDraft[it.id] ?? it.offer),
+      }));
+      if (items.some((i) => !Number.isFinite(i.offer) || i.offer <= 0)) {
+        setAdjustError("Enter a valid price for each device.");
+        return;
+      }
+      setOrder(await api.opsAdjustOffer(order.trackingId, { items, note: adjustNote || undefined }));
+      setAdjustDraft({});
+      setAdjustNote("");
+    } catch (e) {
+      setAdjustError(e instanceof Error ? e.message : "Failed to adjust the offer.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   /* ---------------- building blocks (shared by both layouts) ---------------- */
 
@@ -124,9 +155,52 @@ export function OrderTrack({
       </div>
       <p className="mt-2 text-xs text-ink-400">
         {canAdjustViaGrading
-          ? "To adjust the offer, grade the device in the grading queue — the new price is calculated from what the inspector finds; it can't be typed here."
+          ? "Set a new price in “Adjust offer” below, or grade the device in the grading queue to calculate it from the inspected condition."
           : "Status shortcuts stand in for carrier webhooks. Intake & grading happen in the grading queue."}
       </p>
+    </div>
+  );
+
+  const adjustCard = canAdjustManually && (
+    <div className="card border-amber-200 p-6">
+      <h2 className="text-lg font-bold">Adjust offer</h2>
+      <p className="mt-1 text-sm text-ink-500">
+        Set the price you&apos;ll actually pay — the customer gets the original quote crossed out
+        next to your new offer and chooses accept or free return. Prefer a calculated price? Grade
+        the device in the grading queue instead.
+      </p>
+      <div className="mt-4 space-y-2">
+        {order.items.map((it) => (
+          <div key={it.id} className="flex flex-wrap items-center gap-3">
+            <span className="min-w-40 text-sm text-ink-500">
+              {it.modelName} <span className="text-ink-300">{it.variantLabel}</span>
+            </span>
+            <span className="text-xs text-ink-300">quoted {money(it.offer, order.currency)} →</span>
+            <div className="flex items-center gap-1">
+              <span className="text-sm text-ink-400">$</span>
+              <input
+                type="number"
+                min={1}
+                className="input w-28 py-1.5 text-right tabular-nums"
+                value={adjustDraft[it.id] ?? String(it.device?.inspection?.adjustedOffer ?? it.offer)}
+                disabled={busy}
+                onChange={(e) => setAdjustDraft((d) => ({ ...d, [it.id]: e.target.value }))}
+              />
+            </div>
+          </div>
+        ))}
+        <input
+          className="input w-full"
+          placeholder="Reason shown to the customer (e.g. “screen has deep scratches”)"
+          value={adjustNote}
+          disabled={busy}
+          onChange={(e) => setAdjustNote(e.target.value)}
+        />
+      </div>
+      {adjustError && <p className="mt-2 text-xs text-red-600">{adjustError}</p>}
+      <button className="btn-primary mt-4" disabled={busy} onClick={submitAdjust}>
+        {busy ? "Sending…" : order.state === "OFFER_ADJUSTED" ? "Update adjusted offer" : "Send adjusted offer to customer"}
+      </button>
     </div>
   );
 
@@ -296,6 +370,7 @@ export function OrderTrack({
         <div className="grid items-start gap-6 lg:grid-cols-3">
           <div className="space-y-6 lg:col-span-2">
             {fairEvalCard}
+            {adjustCard}
             {summaryCard}
             {activityCard}
           </div>

@@ -298,6 +298,13 @@ export const inspectRequestSchema = z.object({
 });
 export type InspectRequest = z.infer<typeof inspectRequestSchema>;
 
+// Ops back-office: manually set an adjusted offer (no grading — staff types the price).
+export const adjustOfferSchema = z.object({
+  items: z.array(z.object({ orderItemId: z.string().min(1), offer: z.number().positive() })).min(1),
+  note: z.string().max(500).optional(),
+});
+export type AdjustOfferRequest = z.infer<typeof adjustOfferSchema>;
+
 // Seller's Fair-Evaluation response to a confirmed/adjusted offer.
 export const respondRequestSchema = z.object({
   decision: z.enum(["ACCEPT", "REJECT"]),

@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import type {
+  AdjustOfferRequest,
   InspectRequest,
   IntakeRequest,
   LifecycleState,
@@ -131,6 +132,63 @@ export class OpsService {
     }
 
     return this.orders.getByTracking(item.order.trackingId);
+  }
+
+  /**
+   * Manual price override — staff types the adjusted offer directly instead of
+   * grading. Reuses the Inspection row so the customer flow (crossed-out price,
+   * accept/reject, payout) is identical to a graded adjustment.
+   */
+  async adjustOffer(trackingId: string, req: AdjustOfferRequest, inspector: string): Promise<OrderDto> {
+    const order = await this.prisma.order.findUnique({
+      where: { trackingId },
+      include: { items: { include: { device: true } } },
+    });
+    if (!order) throw new NotFoundException("Order not found");
+
+    // Editable until the customer has answered (or the order is settled).
+    const editable = [...CHAIN, "OFFER_ADJUSTED"];
+    if (!editable.includes(order.state as LifecycleState)) {
+      throw new BadRequestException(`Order is ${order.state}; the offer can no longer be adjusted.`);
+    }
+
+    for (const line of req.items) {
+      const item = order.items.find((i) => i.id === line.orderItemId);
+      if (!item) throw new NotFoundException(`Order item ${line.orderItemId} not found on this order`);
+
+      // A manual adjust may happen before intake — attach a bare device record.
+      const device =
+        item.device ??
+        (await this.prisma.device.create({ data: { orderItemId: item.id, eligible: true } }));
+
+      const outcome = line.offer === item.offer ? "CONFIRMED" : "ADJUSTED";
+      const findings = req.note?.trim() || "Price adjusted manually by staff";
+      await this.prisma.inspection.upsert({
+        where: { deviceId: device.id },
+        create: { deviceId: device.id, inspector, findings, adjustedOffer: line.offer, outcome },
+        update: { inspector, findings, adjustedOffer: line.offer, outcome },
+      });
+    }
+
+    // Settle the order state once every item has a decision (single-device is the norm).
+    const items = await this.prisma.orderItem.findMany({
+      where: { orderId: order.id },
+      include: { device: { include: { inspection: true } } },
+    });
+    const allDecided = items.every((it) => it.device?.inspection);
+    if (allDecided && order.state !== "OFFER_ADJUSTED") {
+      const anyAdjusted = items.some((it) => it.device?.inspection?.outcome === "ADJUSTED");
+      await this.advanceTo(trackingId, "INSPECTING", "Price review");
+      await this.orders.advance(
+        trackingId,
+        anyAdjusted ? "OFFER_ADJUSTED" : "OFFER_CONFIRMED",
+        anyAdjusted ? `Offer adjusted by ${inspector}` : `Offer confirmed by ${inspector}`,
+      );
+    }
+    // Already OFFER_ADJUSTED: the inspection rows were updated in place — the
+    // customer's proposed total recomputes from them on the next read.
+
+    return this.orders.getByTracking(trackingId);
   }
 
   /** Advance along the happy path to `target` via valid single-step transitions. */

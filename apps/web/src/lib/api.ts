@@ -6,6 +6,7 @@ import type {
   QuoteResponse,
   CreateOrderRequest,
   LifecycleState,
+  AdjustOfferRequest,
   IntakeRequest,
   InspectRequest,
   RespondRequest,
@@ -123,6 +124,8 @@ export const api = {
   opsQueue: () => http<OrderDto[]>(`/ops/queue`),
   opsIntake: (trackingId: string, body: IntakeRequest) =>
     http<OrderDto>(`/ops/orders/${trackingId}/intake`, { method: "POST", body: JSON.stringify(body) }),
+  opsAdjustOffer: (trackingId: string, body: AdjustOfferRequest) =>
+    http<OrderDto>(`/ops/orders/${trackingId}/adjust`, { method: "POST", body: JSON.stringify(body) }),
   opsInspect: (orderItemId: string, body: InspectRequest) =>
     http<OrderDto>(`/ops/items/${orderItemId}/inspect`, { method: "POST", body: JSON.stringify(body) }),
 
