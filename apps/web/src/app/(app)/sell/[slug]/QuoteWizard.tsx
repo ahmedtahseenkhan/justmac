@@ -232,7 +232,7 @@ export function QuoteWizard({ model }: { model: ModelDetailDto }) {
                   </p>
                 </div>
 
-                <PriceBreakdown breakdown={quote.breakdown} currency={quote.currency} lockExpiresAt={quote.lockExpiresAt} />
+                <PriceBreakdown lockExpiresAt={quote.lockExpiresAt} />
 
                 <PriceWatchForm variantId={quote.variantId} currentOffer={quote.offer} />
 

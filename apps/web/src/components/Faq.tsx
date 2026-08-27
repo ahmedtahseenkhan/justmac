@@ -5,7 +5,7 @@ import { useState } from "react";
 const FAQS: { q: string; a: string }[] = [
   {
     q: "How do I get a quote?",
-    a: "Pick your device, tell us the model and condition, and you get an instant cash quote with a full price breakdown — no account or commitment required.",
+    a: "Pick your device, tell us the model and condition, and you get an instant cash quote — no account or commitment required.",
   },
   {
     q: "Is shipping really free?",

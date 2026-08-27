@@ -12,7 +12,7 @@ const PRESS = ["USA TODAY", "CNET", "Forbes", "WIRED", "TechCrunch", "CNBC", "Ma
 const DEVICE_MQ = ["iPhone 15 Pro", "MacBook Air M3", "iPad Pro", "Apple Watch Ultra", "iPhone 14", "MacBook Pro", "iPad Air", "Apple Watch SE", "iPhone 13", "iPhone SE"];
 
 const STEPS = [
-  { n: "1", title: "Get an instant quote", desc: "Answer a few quick questions about your device's condition and see a full, transparent price breakdown instantly." },
+  { n: "1", title: "Get an instant quote", desc: "Answer a few quick questions about your device's condition and see your cash offer instantly." },
   { n: "2", title: "Ship it free", desc: "We send a prepaid, trackable label or a shipping kit. Pack it up, drop it off, and track it the whole way." },
   { n: "3", title: "Get paid", desc: "We inspect, confirm, and pay via ACH, PayPal, check, or Zelle — usually within a couple of days." },
 ];
@@ -70,7 +70,7 @@ export default async function HomePage() {
             </Reveal>
             <Reveal delay={140}>
               <p className="mt-6 max-w-[460px] text-[clamp(16px,1.5vw,19px)] leading-relaxed text-ink-600">
-                Get an instant quote with a full price breakdown, ship free with a prepaid label, and
+                Get an instant quote, ship free with a prepaid label, and
                 get paid after a quick inspection.
               </p>
             </Reveal>
