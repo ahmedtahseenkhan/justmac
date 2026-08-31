@@ -38,6 +38,20 @@ services:
       # Scraping proxy for the Back Market price feed ({{URL}} = url-encoded target).
       # Direct fetches are blocked by DataDome, so leave empty to disable scraping.
       SCRAPER_PROXY_URL: ${SCRAPER_PROXY_URL:-}
+      # ShipStation V2 — prepaid inbound labels. Leave API key empty to run with
+      # stub labels. Set SHIPSTATION_TEST=false only when ready to buy real postage.
+      SHIPSTATION_API_KEY: ${SHIPSTATION_API_KEY:-}
+      SHIPSTATION_TEST: ${SHIPSTATION_TEST:-true}
+      SHIPSTATION_SERVICE_CODE: ${SHIPSTATION_SERVICE_CODE:-usps_ground_advantage}
+      SHIPSTATION_CARRIER_ID: ${SHIPSTATION_CARRIER_ID:-}
+      SHIPSTATION_WEIGHT_OZ: ${SHIPSTATION_WEIGHT_OZ:-16}
+      WAREHOUSE_NAME: ${WAREHOUSE_NAME:-}
+      WAREHOUSE_PHONE: ${WAREHOUSE_PHONE:-}
+      WAREHOUSE_STREET1: ${WAREHOUSE_STREET1:-}
+      WAREHOUSE_STREET2: ${WAREHOUSE_STREET2:-}
+      WAREHOUSE_CITY: ${WAREHOUSE_CITY:-}
+      WAREHOUSE_STATE: ${WAREHOUSE_STATE:-}
+      WAREHOUSE_ZIP: ${WAREHOUSE_ZIP:-}
     depends_on:
       postgres:
         condition: service_healthy

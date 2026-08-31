@@ -332,10 +332,55 @@ export function OrderTrack({
         <span>Total payout · {order.payoutMethod}</span>
         <span className="text-brand-600">{money(order.totalOffer, order.currency)}</span>
       </div>
-      {order.labelUrl && (
+      {(order.address || order.trackingNumber) && (
+        <div className="mt-4 space-y-1 border-t border-gray-100 pt-4 text-xs text-ink-500">
+          {order.address && (
+            <p>
+              <span className="font-medium text-ink-700">Ships from:</span> {order.address.street1}
+              {order.address.street2 ? `, ${order.address.street2}` : ""}, {order.address.city},{" "}
+              {order.address.state} {order.address.postalCode}
+            </p>
+          )}
+          {order.trackingNumber && (
+            <p>
+              <span className="font-medium text-ink-700">Carrier tracking:</span>{" "}
+              <span className="font-mono">{order.trackingNumber}</span>
+            </p>
+          )}
+        </div>
+      )}
+      {order.labelUrl ? (
         <a href={order.labelUrl} className="btn-ghost mt-4 w-full" target="_blank" rel="noreferrer">
           Re-print shipping label
         </a>
+      ) : admin ? (
+        <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3">
+          <p className="text-xs font-medium text-red-700">
+            No shipping label — the purchase failed when this order was placed.
+          </p>
+          <button
+            className="btn-primary mt-2 w-full text-sm"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              setAdjustError(null);
+              try {
+                setOrder(await api.opsReissueLabel(order.trackingId));
+              } catch (e) {
+                setAdjustError(e instanceof Error ? e.message : "Label purchase failed again.");
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? "Buying label…" : "Generate label now"}
+          </button>
+          {adjustError && <p className="mt-2 text-xs text-red-600">{adjustError}</p>}
+        </div>
+      ) : (
+        <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Your shipping label is being prepared — we&apos;ll email it to you shortly.
+        </p>
       )}
     </div>
   );

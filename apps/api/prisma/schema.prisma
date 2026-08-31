@@ -142,6 +142,17 @@ model Order {
   payoutMethod   String
   payoutDetail   String // masked at the edge in MVP
   shippingOption String      @default("PREPAID_LABEL")
+  // Customer's pickup/origin address — required by carriers to purchase a label.
+  // Nullable for orders created before the ShipStation integration.
+  shipStreet1    String?
+  shipStreet2    String?
+  shipCity       String?
+  shipState      String?
+  shipZip        String?
+  // Carrier tracking number + ShipStation label id (for voids/returns), set when
+  // the label purchase succeeds; labelUrl stays null on failure so staff can retry.
+  trackingNumber String?
+  labelId        String?
   promoCode      String?
   promoBonus     Float       @default(0) // buyback bonus added by a promo code
   // Instant/same-day payout upsell: a fee is deducted from the payout.

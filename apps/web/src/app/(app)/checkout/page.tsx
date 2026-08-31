@@ -41,6 +41,11 @@ export default function CheckoutPage() {
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
+  const [street1, setStreet1] = useState("");
+  const [street2, setStreet2] = useState("");
+  const [city, setCity] = useState("");
+  const [stateCode, setStateCode] = useState("");
+  const [zip, setZip] = useState("");
   const [payoutMethod, setPayoutMethod] = useState<PayoutMethod>("ACH");
   const [payoutDetail, setPayoutDetail] = useState("");
   const [shippingOption, setShippingOption] = useState<ShippingOption>("PREPAID_LABEL");
@@ -83,6 +88,13 @@ export default function CheckoutPage() {
         fullName,
         payoutMethod,
         payoutDetail,
+        address: {
+          street1: street1.trim(),
+          street2: street2.trim() || undefined,
+          city: city.trim(),
+          state: stateCode.trim().toUpperCase(),
+          postalCode: zip.trim(),
+        },
         shippingOption,
         promoCode: promo.trim() || undefined,
         instantPayout: instant,
@@ -97,7 +109,12 @@ export default function CheckoutPage() {
     }
   }
 
-  const valid = fullName && /.+@.+\..+/.test(email) && payoutDetail && agreed;
+  const addressValid =
+    street1.trim().length >= 3 &&
+    city.trim().length >= 2 &&
+    /^[A-Za-z]{2}$/.test(stateCode.trim()) &&
+    /^\d{5}(-\d{4})?$/.test(zip.trim());
+  const valid = fullName && /.+@.+\..+/.test(email) && payoutDetail && addressValid && agreed;
 
   return (
     <div className="mx-auto grid max-w-4xl gap-8 md:grid-cols-[1fr_320px]">
@@ -111,6 +128,29 @@ export default function CheckoutPage() {
           <Field label="Email">
             <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           </Field>
+        </Section>
+
+        <Section title="Pickup address">
+          <p className="-mt-1 text-xs text-ink-400">
+            Where you&apos;ll ship from — carriers need it printed on your prepaid label.
+          </p>
+          <Field label="Street address">
+            <input className="input" value={street1} autoComplete="address-line1" onChange={(e) => setStreet1(e.target.value)} />
+          </Field>
+          <Field label="Apt / suite (optional)">
+            <input className="input" value={street2} autoComplete="address-line2" onChange={(e) => setStreet2(e.target.value)} />
+          </Field>
+          <div className="grid grid-cols-[1fr_80px_110px] gap-3">
+            <Field label="City">
+              <input className="input" value={city} autoComplete="address-level2" onChange={(e) => setCity(e.target.value)} />
+            </Field>
+            <Field label="State">
+              <input className="input uppercase" value={stateCode} maxLength={2} placeholder="CA" autoComplete="address-level1" onChange={(e) => setStateCode(e.target.value)} />
+            </Field>
+            <Field label="ZIP">
+              <input className="input" value={zip} inputMode="numeric" placeholder="94107" autoComplete="postal-code" onChange={(e) => setZip(e.target.value)} />
+            </Field>
+          </div>
         </Section>
 
         <Section title="Payout method">

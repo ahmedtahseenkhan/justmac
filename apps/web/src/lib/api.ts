@@ -124,6 +124,8 @@ export const api = {
   opsQueue: () => http<OrderDto[]>(`/ops/queue`),
   opsIntake: (trackingId: string, body: IntakeRequest) =>
     http<OrderDto>(`/ops/orders/${trackingId}/intake`, { method: "POST", body: JSON.stringify(body) }),
+  opsReissueLabel: (trackingId: string) =>
+    http<OrderDto>(`/ops/orders/${trackingId}/label`, { method: "POST" }),
   opsAdjustOffer: (trackingId: string, body: AdjustOfferRequest) =>
     http<OrderDto>(`/ops/orders/${trackingId}/adjust`, { method: "POST", body: JSON.stringify(body) }),
   opsInspect: (orderItemId: string, body: InspectRequest) =>

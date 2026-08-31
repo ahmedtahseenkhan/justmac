@@ -178,11 +178,23 @@ export const createOrderItemSchema = z.object({
   quoteId: z.string(),
 });
 
+// Customer's origin address — carriers require it to purchase the prepaid label.
+export const shippingAddressSchema = z.object({
+  street1: z.string().min(3),
+  street2: z.string().optional(),
+  city: z.string().min(2),
+  state: z.string().min(2).max(2), // 2-letter US state code
+  postalCode: z.string().regex(/^\d{5}(-\d{4})?$/, "Enter a 5-digit ZIP code"),
+  phone: z.string().optional(),
+});
+export type ShippingAddress = z.infer<typeof shippingAddressSchema>;
+
 export const createOrderSchema = z.object({
   email: z.string().email(),
   fullName: z.string().min(1),
   payoutMethod: z.enum(PAYOUT_METHODS),
   payoutDetail: z.string().min(1), // account/email/etc — masked in MVP
+  address: shippingAddressSchema,
   shippingOption: z.enum(SHIPPING_OPTIONS).default("PREPAID_LABEL"),
   promoCode: z.string().optional(),
   instantPayout: z.boolean().optional(),
@@ -229,6 +241,9 @@ export const orderDtoSchema = z.object({
   payoutMethod: z.enum(PAYOUT_METHODS),
   shippingOption: z.enum(SHIPPING_OPTIONS),
   labelUrl: z.string().nullable(),
+  /** Carrier tracking number for the inbound package (null until a label exists). */
+  trackingNumber: z.string().nullable().optional(),
+  address: shippingAddressSchema.nullable().optional(),
   totalOffer: z.number(),
   // Set when an inspection has proposed an adjusted offer the seller hasn't yet answered.
   proposedTotal: z.number().nullable().optional(),

@@ -13,6 +13,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { PromoService } from "../promo/promo.service";
 import { AffiliateService } from "../affiliate/affiliate.service";
+import { ShipStationService } from "../shipping/shipstation.service";
 
 const trackingId = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 8);
 
@@ -23,9 +24,10 @@ export class OrdersService {
     private readonly notifications: NotificationsService,
     private readonly promo: PromoService,
     private readonly affiliate: AffiliateService,
+    private readonly shipstation: ShipStationService,
   ) {}
 
-  /** Turn a box of locked quotes into an order, issue a (stub) prepaid label. */
+  /** Turn a box of locked quotes into an order and buy the prepaid inbound label. */
   async createOrder(req: CreateOrderRequest): Promise<OrderDto> {
     const quoteIds = req.items.map((i) => i.quoteId);
     const quotes = await this.prisma.quote.findMany({
@@ -57,7 +59,25 @@ export class OrdersService {
     const fee = req.instantPayout ? instantPayoutFee(totalOffer) : 0;
 
     const tid = trackingId();
-    const labelUrl = `https://labels.sellme.local/${tid}.pdf`; // stub — real impl calls FedEx/UPS
+
+    // Buy the prepaid label via ShipStation. A carrier failure must not lose the
+    // sale: the order is still created and staff retry from the admin order page.
+    let label: { labelUrl: string | null; trackingNumber: string | null; labelId: string | null };
+    let labelNote: string;
+    try {
+      const purchased = await this.shipstation.createInboundLabel({
+        trackingId: tid,
+        fullName: req.fullName,
+        address: req.address,
+      });
+      label = purchased;
+      labelNote = purchased.stub
+        ? "Prepaid shipping label issued (stub — ShipStation not configured)"
+        : `Prepaid shipping label issued (tracking ${purchased.trackingNumber ?? "n/a"})`;
+    } catch (e) {
+      label = { labelUrl: null, trackingNumber: null, labelId: null };
+      labelNote = `Label purchase failed: ${e instanceof Error ? e.message : e} — retry from the admin order page`;
+    }
 
     const order = await this.prisma.order.create({
       data: {
@@ -67,12 +87,19 @@ export class OrdersService {
         payoutMethod: req.payoutMethod,
         payoutDetail: maskPayout(req.payoutDetail),
         shippingOption: req.shippingOption,
+        shipStreet1: req.address.street1,
+        shipStreet2: req.address.street2 ?? null,
+        shipCity: req.address.city,
+        shipState: req.address.state.toUpperCase(),
+        shipZip: req.address.postalCode,
+        trackingNumber: label.trackingNumber,
+        labelId: label.labelId,
         promoCode: promo.valid ? promo.code : null,
         promoBonus,
         instantPayout: !!req.instantPayout,
         instantPayoutFee: fee,
         affiliateCode: req.affiliateCode?.trim().toUpperCase() || null,
-        labelUrl,
+        labelUrl: label.labelUrl,
         totalOffer,
         currency: quotes[0]?.currency ?? "USD",
         state: "LABEL_ISSUED",
@@ -89,7 +116,7 @@ export class OrdersService {
         events: {
           create: [
             { state: "QUOTE_LOCKED", note: "Quote locked at checkout" },
-            { state: "LABEL_ISSUED", note: "Prepaid shipping label issued" },
+            { state: "LABEL_ISSUED", note: labelNote },
           ],
         },
       },
@@ -97,6 +124,44 @@ export class OrdersService {
 
     await this.notifications.notifyStateChange(order, "LABEL_ISSUED");
     return this.getByTracking(tid);
+  }
+
+  /** Staff retry after a failed label purchase (or re-buy if the customer lost it). */
+  async issueLabel(trackingIdParam: string): Promise<OrderDto> {
+    const order = await this.prisma.order.findUnique({ where: { trackingId: trackingIdParam } });
+    if (!order) throw new NotFoundException("Order not found");
+    if (!order.shipStreet1 || !order.shipCity || !order.shipState || !order.shipZip) {
+      throw new BadRequestException(
+        "This order has no shipping address (placed before addresses were collected) — it can't get a carrier label.",
+      );
+    }
+
+    const purchased = await this.shipstation.createInboundLabel({
+      trackingId: order.trackingId,
+      fullName: order.fullName,
+      address: {
+        street1: order.shipStreet1,
+        street2: order.shipStreet2 ?? undefined,
+        city: order.shipCity,
+        state: order.shipState,
+        postalCode: order.shipZip,
+      },
+    });
+    await this.prisma.order.update({
+      where: { id: order.id },
+      data: {
+        labelUrl: purchased.labelUrl,
+        trackingNumber: purchased.trackingNumber,
+        labelId: purchased.labelId,
+        events: {
+          create: {
+            state: order.state,
+            note: `Label re-issued by staff (tracking ${purchased.trackingNumber ?? "n/a"})`,
+          },
+        },
+      },
+    });
+    return this.getByTracking(trackingIdParam);
   }
 
   /** Searchable, paginated list of all orders for the back office. */
@@ -329,6 +394,16 @@ function toOrderDto(order: any): OrderDto {
     payoutMethod: order.payoutMethod,
     shippingOption: order.shippingOption,
     labelUrl: order.labelUrl,
+    trackingNumber: order.trackingNumber ?? null,
+    address: order.shipStreet1
+      ? {
+          street1: order.shipStreet1,
+          street2: order.shipStreet2 ?? undefined,
+          city: order.shipCity,
+          state: order.shipState,
+          postalCode: order.shipZip,
+        }
+      : null,
     totalOffer: order.totalOffer,
     proposedTotal,
     promoCode: order.promoCode,

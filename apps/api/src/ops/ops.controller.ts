@@ -35,6 +35,11 @@ export class OpsController {
     return this.ops.intake(trackingId, body);
   }
 
+  @Post("orders/:trackingId/label")
+  reissueLabel(@Param("trackingId") trackingId: string) {
+    return this.ops.reissueLabel(trackingId);
+  }
+
   @Post("orders/:trackingId/adjust")
   adjust(
     @Param("trackingId") trackingId: string,

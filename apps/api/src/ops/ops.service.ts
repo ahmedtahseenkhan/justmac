@@ -34,6 +34,11 @@ export class OpsService {
     return this.orders.board();
   }
 
+  /** Retry/re-buy the prepaid inbound label after a ShipStation failure. */
+  reissueLabel(trackingId: string): Promise<OrderDto> {
+    return this.orders.issueLabel(trackingId);
+  }
+
   /**
    * Receive a shipment by tracking number. Creates a physical Device per item, runs
    * eligibility/fraud screening, and moves the order to RECEIVED.
