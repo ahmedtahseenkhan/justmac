@@ -16,6 +16,8 @@ import type { ShippingAddress } from "@sellme/shared";
  *   SHIPSTATION_CARRIER_ID     — optional; needed when the account has several
  *                                accounts for the same carrier.
  *   SHIPSTATION_WEIGHT_OZ      — declared package weight (default 16).
+ *   SHIPSTATION_DIMS_IN        — optional box dimensions "LxWxH" in inches, e.g.
+ *                                "16x16x10" — FedEx/UPS use dimensional pricing.
  *   SHIPSTATION_API_URL        — override for tests (default https://api.shipstation.com).
  *   WAREHOUSE_NAME/PHONE/STREET1/STREET2/CITY/STATE/ZIP — where customers ship to.
  */
@@ -78,6 +80,7 @@ export class ShipStationService {
               value: Number(process.env.SHIPSTATION_WEIGHT_OZ ?? 16),
               unit: "ounce",
             },
+            ...(parseDims(process.env.SHIPSTATION_DIMS_IN) ?? {}),
           },
         ],
       },
@@ -149,6 +152,16 @@ export class ShipStationService {
       },
     };
   }
+}
+
+/** "16x16x10" → ShipStation dimensions object; undefined when unset/invalid. */
+function parseDims(raw: string | undefined) {
+  if (!raw) return undefined;
+  const m = raw.trim().match(/^(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)$/i);
+  if (!m) return undefined;
+  return {
+    dimensions: { length: Number(m[1]), width: Number(m[2]), height: Number(m[3]), unit: "inch" },
+  };
 }
 
 /** Pull the human-readable message(s) out of a ShipStation error body. */
